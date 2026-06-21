@@ -1038,7 +1038,7 @@ export default function Home() {
 
                 <button
                   onClick={sendMessage}
-                  className={`h-12 shrink-0 rounded-2xl px-4 font-bold transition md:h-auto md:px-6 ${
+                  className={`h-12 shrink-0 rounded-2xl px-4 font-bold transition md:h-14 md:px-6 ${
                     isDark
                       ? "bg-violet-400 text-slate-950 hover:bg-violet-300"
                       : "bg-slate-950 text-white hover:bg-slate-800"
