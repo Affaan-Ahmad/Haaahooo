@@ -3,10 +3,7 @@
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabaseClient";
-import {
-  setupPushNotifications,
-  sendPushNotification,
-} from "@/lib/clientNotifications";
+import { setupPushNotifications, sendPushNotification, } from "@/lib/clientNotifications";
 
 type MessageType = "text" | "image" | "video" | "audio";
 
@@ -225,8 +222,6 @@ export default function Home() {
   const [error, setError] = useState("");
   const [uploading, setUploading] = useState(false);
   const [notificationsOn, setNotificationsOn] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [mediaOpen, setMediaOpen] = useState(false);
 
   const [themeMode, setThemeMode] = useState<ThemeMode>("auto");
   const [timeTheme, setTimeTheme] = useState<EffectiveTheme>("light");
@@ -384,27 +379,25 @@ export default function Home() {
   }
 
   async function signOut() {
-    setSettingsOpen(false);
     await supabase.auth.signOut();
     setMessages([]);
   }
 
   async function enableNotifications() {
-    setError("");
+  setError("");
 
-    try {
-      await setupPushNotifications();
-      setNotificationsOn(true);
-      setSettingsOpen(false);
-      alert("Notifications enabled!");
-    } catch (error) {
-      setError(
-        error instanceof Error
-          ? error.message
-          : "Could not enable notifications."
-      );
-    }
+  try {
+    await setupPushNotifications();
+    setNotificationsOn(true);
+    alert("Notifications enabled!");
+  } catch (error) {
+    setError(
+      error instanceof Error
+        ? error.message
+        : "Could not enable notifications."
+    );
   }
+}
 
   async function sendMessage() {
     const body = text.trim();
@@ -420,11 +413,11 @@ export default function Home() {
     });
 
     if (error) {
-      setError(error.message);
-      return;
-    }
+  setError(error.message);
+  return;
+}
 
-    await sendPushNotification("text");
+await sendPushNotification("text");
   }
 
   async function uploadFile(file: File, forcedType?: MessageType) {
@@ -480,11 +473,11 @@ export default function Home() {
     setUploading(false);
 
     if (messageError) {
-      setError(messageError.message);
-      return;
-    }
+  setError(messageError.message);
+  return;
+}
 
-    await sendPushNotification(messageType);
+await sendPushNotification(messageType);
   }
 
   async function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
@@ -499,7 +492,6 @@ export default function Home() {
 
   async function startRecording() {
     setError("");
-    setMediaOpen(false);
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -554,7 +546,7 @@ export default function Home() {
     : "border-sky-100 bg-white/80 text-slate-950 placeholder:text-slate-400 focus:border-sky-400";
 
   return (
-    <main className="relative min-h-screen overflow-hidden md:min-h-screen">
+    <main className="relative min-h-screen overflow-hidden">
       <SkyBackground theme={effectiveTheme} />
 
       <input
@@ -573,7 +565,7 @@ export default function Home() {
         onChange={handleFileChange}
       />
 
-      <div className="relative z-10 flex min-h-[100dvh] items-center justify-center p-0 md:min-h-screen md:p-4">
+      <div className="relative z-10 flex min-h-screen items-center justify-center p-4">
         {!session ? (
           <div
             className={`w-full max-w-sm rounded-3xl border p-6 backdrop-blur-xl transition ${glassPanel}`}
@@ -641,115 +633,24 @@ export default function Home() {
           </div>
         ) : (
           <div
-            className={`flex h-[100dvh] w-full max-w-4xl flex-col overflow-hidden border-0 backdrop-blur-xl transition md:h-[94vh] md:rounded-3xl md:border ${glassPanel}`}
+            className={`flex h-[94vh] w-full max-w-4xl flex-col overflow-hidden rounded-3xl border backdrop-blur-xl transition ${glassPanel}`}
           >
             <div
-              className={`mobile-safe-top relative flex shrink-0 items-center justify-between gap-3 border-b px-3 pb-3 pt-3 md:flex-wrap md:p-4 ${
+              className={`flex flex-wrap items-center justify-between gap-3 border-b p-4 ${
                 isDark ? "border-white/10" : "border-white/70"
               }`}
             >
-              <div className="flex min-w-0 items-center gap-2 md:gap-3">
-                <div className="text-2xl md:text-3xl">{isDark ? "🌙" : "☀️"}</div>
-                <div className="min-w-0">
-                  <h1 className="truncate text-lg font-black tracking-tight md:text-2xl">
-                    Private Chat
-                  </h1>
-                  <p
-                    className={`max-w-[58vw] truncate text-xs md:max-w-none md:text-sm ${
-                      isDark ? "text-white/55" : "text-slate-500"
-                    }`}
-                  >
+              <div className="flex items-center gap-3">
+                <div className="text-3xl">{isDark ? "🌙" : "☀️"}</div>
+                <div>
+                  <h1 className="text-2xl font-black tracking-tight">Private Chat</h1>
+                  <p className={isDark ? "text-sm text-white/55" : "text-sm text-slate-500"}>
                     {session.user.email}
                   </p>
                 </div>
               </div>
 
-              <button
-                type="button"
-                onClick={() => {
-                  setSettingsOpen((open) => !open);
-                  setMediaOpen(false);
-                }}
-                aria-label="Open chat settings"
-                aria-expanded={settingsOpen}
-                className={`flex h-10 w-10 items-center justify-center rounded-full text-xl transition md:hidden ${
-                  isDark
-                    ? "bg-white/10 text-white active:bg-white/20"
-                    : "bg-white/75 text-slate-800 active:bg-white"
-                }`}
-              >
-                ⚙
-              </button>
-
-              {settingsOpen && (
-                <div
-                  className={`absolute right-3 top-[calc(100%+0.5rem)] z-40 w-64 rounded-2xl border p-3 shadow-2xl backdrop-blur-xl md:hidden ${
-                    isDark
-                      ? "border-white/10 bg-slate-950/95 text-white"
-                      : "border-slate-200 bg-white/95 text-slate-900"
-                  }`}
-                >
-                  <p className="mb-2 px-1 text-xs font-bold uppercase opacity-55">
-                    Theme
-                  </p>
-                  <div className="mb-3 grid grid-cols-3 gap-2">
-                    <ThemeButton
-                      label="Auto"
-                      value="auto"
-                      selected={themeMode}
-                      onClick={(value) => {
-                        setThemeMode(value);
-                        setSettingsOpen(false);
-                      }}
-                      isDark={isDark}
-                    />
-                    <ThemeButton
-                      label="Light"
-                      value="light"
-                      selected={themeMode}
-                      onClick={(value) => {
-                        setThemeMode(value);
-                        setSettingsOpen(false);
-                      }}
-                      isDark={isDark}
-                    />
-                    <ThemeButton
-                      label="Dark"
-                      value="dark"
-                      selected={themeMode}
-                      onClick={(value) => {
-                        setThemeMode(value);
-                        setSettingsOpen(false);
-                      }}
-                      isDark={isDark}
-                    />
-                  </div>
-
-                  <button
-                    onClick={enableNotifications}
-                    className={`mb-2 w-full rounded-xl px-3 py-3 text-left text-sm font-semibold transition ${
-                      isDark
-                        ? "bg-white/10 active:bg-white/20"
-                        : "bg-slate-100 active:bg-slate-200"
-                    }`}
-                  >
-                    {notificationsOn ? "Notifications enabled" : "Enable notifications"}
-                  </button>
-
-                  <button
-                    onClick={signOut}
-                    className={`w-full rounded-xl px-3 py-3 text-left text-sm font-semibold transition ${
-                      isDark
-                        ? "bg-red-400/20 text-red-100 active:bg-red-400/30"
-                        : "bg-red-100 text-red-700 active:bg-red-200"
-                    }`}
-                  >
-                    Logout
-                  </button>
-                </div>
-              )}
-
-              <div className="hidden flex-wrap items-center gap-2 md:flex">
+              <div className="flex flex-wrap items-center gap-2">
                 <ThemeButton label="Auto" value="auto" selected={themeMode} onClick={setThemeMode} isDark={isDark} />
                 <ThemeButton label="Light" value="light" selected={themeMode} onClick={setThemeMode} isDark={isDark} />
                 <ThemeButton label="Dark" value="dark" selected={themeMode} onClick={setThemeMode} isDark={isDark} />
@@ -776,13 +677,7 @@ export default function Home() {
               </div>
             </div>
 
-            <div
-              className="flex-1 overflow-y-auto overscroll-contain px-3 py-3 md:p-4"
-              onClick={() => {
-                setSettingsOpen(false);
-                setMediaOpen(false);
-              }}
-            >
+            <div className="flex-1 overflow-y-auto p-4">
               {messages.length === 0 && (
                 <div
                   className={`mx-auto mt-20 max-w-sm rounded-3xl p-6 text-center ${
@@ -800,10 +695,10 @@ export default function Home() {
                 return (
                   <div
                     key={message.id}
-                    className={`mb-3 flex md:mb-4 ${mine ? "justify-end" : "justify-start"}`}
+                    className={`mb-4 flex ${mine ? "justify-end" : "justify-start"}`}
                   >
                     <div
-                      className={`max-w-[86%] rounded-3xl px-4 py-3 shadow-sm md:max-w-[78%] ${
+                      className={`max-w-[78%] rounded-3xl px-4 py-3 shadow-sm ${
                         mine
                           ? isDark
                             ? "bg-violet-400 text-slate-950"
@@ -839,12 +734,8 @@ export default function Home() {
               <div ref={bottomRef} />
             </div>
 
-            <div
-              className={`mobile-safe-bottom shrink-0 border-t px-3 pb-3 pt-3 md:p-4 ${
-                isDark ? "border-white/10" : "border-white/70"
-              }`}
-            >
-              <div className="mb-3 hidden flex-wrap gap-2 md:flex">
+            <div className={`border-t p-4 ${isDark ? "border-white/10" : "border-white/70"}`}>
+              <div className="mb-3 flex flex-wrap gap-2">
                 <button
                   onClick={() => imageInputRef.current?.click()}
                   disabled={uploading}
@@ -891,79 +782,9 @@ export default function Home() {
                 )}
               </div>
 
-              <div className="flex items-end gap-2 md:gap-3">
-                <div className="relative md:hidden">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setMediaOpen((open) => !open);
-                      setSettingsOpen(false);
-                    }}
-                    disabled={uploading || isRecording}
-                    aria-label="Open media options"
-                    aria-expanded={mediaOpen}
-                    className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-2xl font-light transition disabled:opacity-50 ${
-                      isDark
-                        ? "bg-white/10 text-white active:bg-white/20"
-                        : "bg-white/80 text-slate-800 active:bg-white"
-                    }`}
-                  >
-                    +
-                  </button>
-
-                  {mediaOpen && (
-                    <div
-                      className={`absolute bottom-[calc(100%+0.75rem)] left-0 z-40 w-48 rounded-2xl border p-2 shadow-2xl backdrop-blur-xl ${
-                        isDark
-                          ? "border-white/10 bg-slate-950/95 text-white"
-                          : "border-slate-200 bg-white/95 text-slate-900"
-                      }`}
-                    >
-                      <button
-                        onClick={() => {
-                          setMediaOpen(false);
-                          imageInputRef.current?.click();
-                        }}
-                        className={`w-full rounded-xl px-3 py-3 text-left text-sm font-semibold ${
-                          isDark ? "active:bg-white/10" : "active:bg-slate-100"
-                        }`}
-                      >
-                        📷 Photo
-                      </button>
-                      <button
-                        onClick={() => {
-                          setMediaOpen(false);
-                          videoInputRef.current?.click();
-                        }}
-                        className={`w-full rounded-xl px-3 py-3 text-left text-sm font-semibold ${
-                          isDark ? "active:bg-white/10" : "active:bg-slate-100"
-                        }`}
-                      >
-                        🎥 Video
-                      </button>
-                      <button
-                        onClick={startRecording}
-                        className={`w-full rounded-xl px-3 py-3 text-left text-sm font-semibold ${
-                          isDark ? "active:bg-white/10" : "active:bg-slate-100"
-                        }`}
-                      >
-                        🎙 Voice note
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                {isRecording && (
-                  <button
-                    onClick={stopRecording}
-                    className="h-12 shrink-0 rounded-full bg-red-500 px-4 text-sm font-bold text-white md:hidden"
-                  >
-                    Stop
-                  </button>
-                )}
-
+              <div className="flex gap-3">
                 <input
-                  className={`min-w-0 flex-1 rounded-2xl border px-4 py-3 outline-none transition md:p-4 ${inputClass}`}
+                  className={`flex-1 rounded-2xl border p-4 outline-none transition ${inputClass}`}
                   placeholder="Type a message..."
                   value={text}
                   onChange={(e) => setText(e.target.value)}
@@ -974,7 +795,7 @@ export default function Home() {
 
                 <button
                   onClick={sendMessage}
-                  className={`h-12 shrink-0 rounded-2xl px-4 font-bold transition md:h-auto md:px-6 ${
+                  className={`rounded-2xl px-6 font-bold transition ${
                     isDark
                       ? "bg-violet-400 text-slate-950 hover:bg-violet-300"
                       : "bg-slate-950 text-white hover:bg-slate-800"
