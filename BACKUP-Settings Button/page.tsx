@@ -12,9 +12,7 @@ type MessageType = "text" | "image" | "video" | "audio";
 
 type Message = {
   id: string;
-  sender_id: string | null;
-  sender_name?: string | null;
-  is_bot?: boolean;
+  sender_id: string;
   body: string | null;
   created_at: string;
   message_type: MessageType;
@@ -427,32 +425,6 @@ export default function Home() {
     }
 
     await sendPushNotification("text");
-
-    if (/(^|\s)@swiggy\b/i.test(body)) {
-      try {
-        const {
-          data: { session: currentSession },
-        } = await supabase.auth.getSession();
-
-        const response = await fetch("/api/swiggy", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${currentSession?.access_token ?? ""}`,
-          },
-          body: JSON.stringify({ message: body }),
-        });
-
-        if (!response.ok) {
-          const result = (await response.json().catch(() => null)) as
-            | { message?: string }
-            | null;
-          setError(result?.message ?? "Swiggy could not reply right now.");
-        }
-      } catch {
-        setError("Swiggy could not reply right now.");
-      }
-    }
   }
 
   async function uploadFile(file: File, forcedType?: MessageType) {
@@ -823,23 +795,16 @@ export default function Home() {
               )}
 
               {messages.map((message) => {
-                const bot = Boolean(message.is_bot);
                 const mine = message.sender_id === session.user.id;
 
                 return (
                   <div
                     key={message.id}
-                    className={`mb-3 flex md:mb-4 ${
-                      mine && !bot ? "justify-end" : "justify-start"
-                    }`}
+                    className={`mb-3 flex md:mb-4 ${mine ? "justify-end" : "justify-start"}`}
                   >
                     <div
                       className={`max-w-[86%] rounded-3xl px-4 py-3 shadow-sm md:max-w-[78%] ${
-                        bot
-                          ? isDark
-                            ? "rounded-tl-md border border-amber-300/40 bg-amber-300/20 text-amber-50 shadow-amber-950/20"
-                            : "rounded-tl-md border border-amber-300 bg-amber-100/95 text-amber-950 shadow-amber-200/50"
-                          : mine
+                        mine
                           ? isDark
                             ? "bg-violet-400 text-slate-950"
                             : "bg-sky-500 text-white"
@@ -848,25 +813,11 @@ export default function Home() {
                             : "border border-white/80 bg-white/75 text-slate-900"
                       }`}
                     >
-                      {bot && (
-                        <p
-                          className={`mb-1 text-xs font-black uppercase tracking-wide ${
-                            isDark ? "text-amber-300" : "text-amber-700"
-                          }`}
-                        >
-                          {message.sender_name ?? "Swiggy"}
-                        </p>
-                      )}
-
                       <MessageContent message={message} />
 
                       <p
                         className={`mt-2 text-xs ${
-                          bot
-                            ? isDark
-                              ? "text-amber-100/50"
-                              : "text-amber-800/55"
-                            : mine
+                          mine
                             ? isDark
                               ? "text-slate-800/60"
                               : "text-white/70"
