@@ -46,33 +46,6 @@ const CLOUDS = [
   { left: 78, top: 32, scale: 0.9, duration: 32 },
 ];
 
-const CHAT_EMOJIS = [
-  "😀",
-  "😂",
-  "🥰",
-  "😍",
-  "😊",
-  "😉",
-  "🥹",
-  "😭",
-  "😅",
-  "😎",
-  "🤔",
-  "🙄",
-  "😴",
-  "😡",
-  "❤️",
-  "💕",
-  "✨",
-  "🔥",
-  "👍",
-  "👏",
-  "🙏",
-  "🎉",
-  "☕",
-  "🐮",
-];
-
 function getTimeBasedTheme(): EffectiveTheme {
   const hour = new Date().getHours();
   return hour >= 6 && hour < 18 ? "light" : "dark";
@@ -256,7 +229,6 @@ export default function Home() {
   const [notificationsOn, setNotificationsOn] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [mediaOpen, setMediaOpen] = useState(false);
-  const [emojiOpen, setEmojiOpen] = useState(false);
 
   const [themeMode, setThemeMode] = useState<ThemeMode>("auto");
   const [timeTheme, setTimeTheme] = useState<EffectiveTheme>("light");
@@ -556,7 +528,6 @@ export default function Home() {
   async function startRecording() {
     setError("");
     setMediaOpen(false);
-    setEmojiOpen(false);
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -726,14 +697,13 @@ export default function Home() {
                 onClick={() => {
                   setSettingsOpen((open) => !open);
                   setMediaOpen(false);
-                  setEmojiOpen(false);
                 }}
                 aria-label="Open chat settings"
                 aria-expanded={settingsOpen}
-                className={`flex h-10 w-10 items-center justify-center rounded-full text-xl transition ${
+                className={`flex h-10 w-10 items-center justify-center rounded-full text-xl transition md:hidden ${
                   isDark
-                    ? "bg-white/10 text-white hover:bg-white/20 active:bg-white/20"
-                    : "bg-white/75 text-slate-800 hover:bg-white active:bg-white"
+                    ? "bg-white/10 text-white active:bg-white/20"
+                    : "bg-white/75 text-slate-800 active:bg-white"
                 }`}
               >
                 ⚙
@@ -741,7 +711,7 @@ export default function Home() {
 
               {settingsOpen && (
                 <div
-                  className={`absolute right-3 top-[calc(100%+0.5rem)] z-40 w-64 rounded-2xl border p-3 shadow-2xl backdrop-blur-xl ${
+                  className={`absolute right-3 top-[calc(100%+0.5rem)] z-40 w-64 rounded-2xl border p-3 shadow-2xl backdrop-blur-xl md:hidden ${
                     isDark
                       ? "border-white/10 bg-slate-950/95 text-white"
                       : "border-slate-200 bg-white/95 text-slate-900"
@@ -806,6 +776,32 @@ export default function Home() {
                   </button>
                 </div>
               )}
+
+              <div className="hidden flex-wrap items-center gap-2 md:flex">
+                <ThemeButton label="Auto" value="auto" selected={themeMode} onClick={setThemeMode} isDark={isDark} />
+                <ThemeButton label="Light" value="light" selected={themeMode} onClick={setThemeMode} isDark={isDark} />
+                <ThemeButton label="Dark" value="dark" selected={themeMode} onClick={setThemeMode} isDark={isDark} />
+                <button
+                  onClick={enableNotifications}
+                  className={`rounded-full px-4 py-2 text-sm font-medium transition ${
+                    isDark
+                      ? "bg-white/10 text-white hover:bg-white/20"
+                      : "bg-white/70 text-slate-700 hover:bg-white"
+                  }`}
+                >
+                  {notificationsOn ? "🔔 On" : "🔔 Enable"}
+                </button>
+                <button
+                  onClick={signOut}
+                  className={`rounded-full px-4 py-2 text-sm font-medium transition ${
+                    isDark
+                      ? "bg-red-400/20 text-red-100 hover:bg-red-400/30"
+                      : "bg-red-100 text-red-700 hover:bg-red-200"
+                  }`}
+                >
+                  Logout
+                </button>
+              </div>
             </div>
 
             <div
@@ -813,7 +809,6 @@ export default function Home() {
               onClick={() => {
                 setSettingsOpen(false);
                 setMediaOpen(false);
-                setEmojiOpen(false);
               }}
             >
               {messages.length === 0 && (
@@ -898,13 +893,59 @@ export default function Home() {
                 isDark ? "border-white/10" : "border-white/70"
               }`}
             >
+              <div className="mb-3 hidden flex-wrap gap-2 md:flex">
+                <button
+                  onClick={() => imageInputRef.current?.click()}
+                  disabled={uploading}
+                  className={`rounded-full px-4 py-2 text-sm font-bold transition ${
+                    isDark ? "bg-white/10 hover:bg-white/20" : "bg-white/70 hover:bg-white"
+                  }`}
+                >
+                  📷 Photo
+                </button>
+
+                <button
+                  onClick={() => videoInputRef.current?.click()}
+                  disabled={uploading}
+                  className={`rounded-full px-4 py-2 text-sm font-bold transition ${
+                    isDark ? "bg-white/10 hover:bg-white/20" : "bg-white/70 hover:bg-white"
+                  }`}
+                >
+                  🎥 Video
+                </button>
+
+                {!isRecording ? (
+                  <button
+                    onClick={startRecording}
+                    disabled={uploading}
+                    className={`rounded-full px-4 py-2 text-sm font-bold transition ${
+                      isDark ? "bg-white/10 hover:bg-white/20" : "bg-white/70 hover:bg-white"
+                    }`}
+                  >
+                    🎙️ Voice
+                  </button>
+                ) : (
+                  <button
+                    onClick={stopRecording}
+                    className="rounded-full bg-red-500 px-4 py-2 text-sm font-bold text-white"
+                  >
+                    ⏹ Stop Recording
+                  </button>
+                )}
+
+                {uploading && (
+                  <span className={isDark ? "text-sm text-white/60" : "text-sm text-slate-500"}>
+                    Uploading...
+                  </span>
+                )}
+              </div>
+
               <div className="flex items-end gap-2 md:gap-3">
-                <div className="relative">
+                <div className="relative md:hidden">
                   <button
                     type="button"
                     onClick={() => {
                       setMediaOpen((open) => !open);
-                      setEmojiOpen(false);
                       setSettingsOpen(false);
                     }}
                     disabled={uploading || isRecording}
@@ -912,8 +953,8 @@ export default function Home() {
                     aria-expanded={mediaOpen}
                     className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-2xl font-light transition disabled:opacity-50 ${
                       isDark
-                        ? "bg-white/10 text-white hover:bg-white/20 active:bg-white/20"
-                        : "bg-white/80 text-slate-800 hover:bg-white active:bg-white"
+                        ? "bg-white/10 text-white active:bg-white/20"
+                        : "bg-white/80 text-slate-800 active:bg-white"
                     }`}
                   >
                     +
@@ -921,7 +962,7 @@ export default function Home() {
 
                   {mediaOpen && (
                     <div
-                      className={`absolute bottom-[calc(100%+0.75rem)] left-0 z-40 w-64 rounded-2xl border p-2 shadow-2xl backdrop-blur-xl ${
+                      className={`absolute bottom-[calc(100%+0.75rem)] left-0 z-40 w-48 rounded-2xl border p-2 shadow-2xl backdrop-blur-xl ${
                         isDark
                           ? "border-white/10 bg-slate-950/95 text-white"
                           : "border-slate-200 bg-white/95 text-slate-900"
@@ -933,9 +974,7 @@ export default function Home() {
                           imageInputRef.current?.click();
                         }}
                         className={`w-full rounded-xl px-3 py-3 text-left text-sm font-semibold ${
-                          isDark
-                            ? "hover:bg-white/10 active:bg-white/10"
-                            : "hover:bg-slate-100 active:bg-slate-100"
+                          isDark ? "active:bg-white/10" : "active:bg-slate-100"
                         }`}
                       >
                         📷 Photo
@@ -946,9 +985,7 @@ export default function Home() {
                           videoInputRef.current?.click();
                         }}
                         className={`w-full rounded-xl px-3 py-3 text-left text-sm font-semibold ${
-                          isDark
-                            ? "hover:bg-white/10 active:bg-white/10"
-                            : "hover:bg-slate-100 active:bg-slate-100"
+                          isDark ? "active:bg-white/10" : "active:bg-slate-100"
                         }`}
                       >
                         🎥 Video
@@ -956,53 +993,11 @@ export default function Home() {
                       <button
                         onClick={startRecording}
                         className={`w-full rounded-xl px-3 py-3 text-left text-sm font-semibold ${
-                          isDark
-                            ? "hover:bg-white/10 active:bg-white/10"
-                            : "hover:bg-slate-100 active:bg-slate-100"
+                          isDark ? "active:bg-white/10" : "active:bg-slate-100"
                         }`}
                       >
                         🎙 Voice note
                       </button>
-
-                      <button
-                        onClick={() => setEmojiOpen((open) => !open)}
-                        aria-expanded={emojiOpen}
-                        className={`w-full rounded-xl px-3 py-3 text-left text-sm font-semibold ${
-                          isDark
-                            ? "hover:bg-white/10 active:bg-white/10"
-                            : "hover:bg-slate-100 active:bg-slate-100"
-                        }`}
-                      >
-                        😊 Emojis
-                      </button>
-
-                      {emojiOpen && (
-                        <div
-                          className={`mt-1 grid grid-cols-6 gap-1 border-t pt-2 ${
-                            isDark ? "border-white/10" : "border-slate-200"
-                          }`}
-                        >
-                          {CHAT_EMOJIS.map((emoji) => (
-                            <button
-                              key={emoji}
-                              type="button"
-                              onClick={() => {
-                                setText((current) => `${current}${emoji}`);
-                                setEmojiOpen(false);
-                                setMediaOpen(false);
-                              }}
-                              className={`flex h-9 w-9 items-center justify-center rounded-lg text-xl transition ${
-                                isDark
-                                  ? "hover:bg-white/15 active:bg-white/20"
-                                  : "hover:bg-slate-100 active:bg-slate-200"
-                              }`}
-                              aria-label={`Insert ${emoji}`}
-                            >
-                              {emoji}
-                            </button>
-                          ))}
-                        </div>
-                      )}
                     </div>
                   )}
                 </div>
@@ -1010,20 +1005,10 @@ export default function Home() {
                 {isRecording && (
                   <button
                     onClick={stopRecording}
-                    className="h-12 shrink-0 rounded-full bg-red-500 px-4 text-sm font-bold text-white"
+                    className="h-12 shrink-0 rounded-full bg-red-500 px-4 text-sm font-bold text-white md:hidden"
                   >
                     Stop
                   </button>
-                )}
-
-                {uploading && (
-                  <span
-                    className={`hidden text-sm sm:inline ${
-                      isDark ? "text-white/60" : "text-slate-500"
-                    }`}
-                  >
-                    Uploading...
-                  </span>
                 )}
 
                 <input
