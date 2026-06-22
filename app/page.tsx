@@ -912,7 +912,7 @@ export default function Home() {
             isDark ? "border-white/10" : "border-slate-200"
           }`}
         >
-          <header className={`mobile-safe-top relative flex items-center justify-between border-b p-4 ${isDark ? "border-white/10" : "border-slate-200"}`}>
+          <header className={`mobile-safe-top relative z-50 flex items-center justify-between border-b p-4 ${isDark ? "border-white/10" : "border-slate-200"}`}>
             <div className="flex min-w-0 items-center gap-3">
               <Avatar name={profile?.display_name ?? "H"} isDark={isDark} size="lg" />
               <div className="min-w-0">
@@ -929,7 +929,7 @@ export default function Home() {
             </button>
 
             {settingsOpen && (
-              <div className={`absolute right-3 top-[calc(100%+0.5rem)] z-50 w-72 rounded-2xl border p-3 shadow-2xl ${panel}`}>
+              <div className={`absolute right-3 top-[calc(100%+0.5rem)] z-[60] w-72 rounded-2xl border p-3 shadow-2xl ${panel}`}>
                 <p className={`mb-2 text-xs font-bold uppercase ${muted}`}>Profile</p>
                 <input className={`mb-2 w-full rounded-xl border px-3 py-2 outline-none ${inputClass}`} value={profileDisplayName} onChange={(event) => setProfileDisplayName(event.target.value)} placeholder="Display name" />
                 <input className={`mb-3 w-full rounded-xl border px-3 py-2 outline-none ${inputClass}`} value={profileUsername} onChange={(event) => setProfileUsername(event.target.value.toLowerCase())} placeholder="Username" />
