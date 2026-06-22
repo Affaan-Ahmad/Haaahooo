@@ -302,6 +302,8 @@ export default function Home() {
   const [searching, setSearching] = useState(false);
 
   const [messages, setMessages] = useState<Message[]>([]);
+  const [messagesLoading, setMessagesLoading] = useState(false);
+  const [messageRefreshKey, setMessageRefreshKey] = useState(0);
   const [text, setText] = useState("");
   const [error, setError] = useState("");
   const [uploading, setUploading] = useState(false);
@@ -315,6 +317,7 @@ export default function Home() {
   const [timeTheme, setTimeTheme] = useState<EffectiveTheme>("light");
 
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const messageCacheRef = useRef<Map<string, Message[]>>(new Map());
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const videoInputRef = useRef<HTMLInputElement | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -470,57 +473,93 @@ export default function Home() {
   useEffect(() => {
     if (!session || !selectedChat) {
       setMessages([]);
+      setMessagesLoading(false);
       return;
     }
 
     let active = true;
+    const conversationId = selectedChat.conversation_id;
+    const cachedMessages = messageCacheRef.current.get(conversationId);
+
+    if (cachedMessages) {
+      setMessages(cachedMessages);
+    } else {
+      setMessages([]);
+      setMessagesLoading(true);
+    }
 
     async function loadMessages() {
+      if (!cachedMessages) setMessagesLoading(true);
+
       const { data, error: messagesError } = await supabase
         .from("messages")
         .select("*")
-        .eq("conversation_id", selectedChat!.conversation_id)
+        .eq("conversation_id", conversationId)
         .order("created_at", { ascending: true });
 
       if (messagesError) {
-        setError(messagesError.message);
+        if (active) {
+          setError(`Could not load message history: ${messagesError.message}`);
+          setMessagesLoading(false);
+        }
         return;
       }
 
       const rows = await addSignedUrls((data ?? []) as Message[]);
-      if (active) setMessages(rows);
+      if (active) {
+        messageCacheRef.current.set(conversationId, rows);
+        setMessages(rows);
+        setMessagesLoading(false);
+      }
     }
 
     void loadMessages();
 
     const channel = supabase
-      .channel(`conversation-${selectedChat.conversation_id}`)
+      .channel(`conversation-${conversationId}`)
       .on(
         "postgres_changes",
         {
           event: "INSERT",
           schema: "public",
           table: "messages",
-          filter: `conversation_id=eq.${selectedChat.conversation_id}`,
+          filter: `conversation_id=eq.${conversationId}`,
         },
         async (payload) => {
           const [messageWithUrl] = await addSignedUrls([payload.new as Message]);
           if (!active) return;
-          setMessages((current) =>
-            current.some((message) => message.id === messageWithUrl.id)
+          setMessages((current) => {
+            const nextMessages = current.some(
+              (message) => message.id === messageWithUrl.id,
+            )
               ? current
-              : [...current, messageWithUrl],
-          );
-          void loadChats(selectedChat.conversation_id);
+              : [...current, messageWithUrl];
+            messageCacheRef.current.set(conversationId, nextMessages);
+            return nextMessages;
+          });
+          void loadChats(conversationId);
         },
       )
-      .subscribe();
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") void loadMessages();
+      });
+
+    function refreshAfterResume() {
+      if (document.visibilityState === "visible") void loadMessages();
+    }
+
+    window.addEventListener("focus", refreshAfterResume);
+    window.addEventListener("pageshow", refreshAfterResume);
+    document.addEventListener("visibilitychange", refreshAfterResume);
 
     return () => {
       active = false;
+      window.removeEventListener("focus", refreshAfterResume);
+      window.removeEventListener("pageshow", refreshAfterResume);
+      document.removeEventListener("visibilitychange", refreshAfterResume);
       void supabase.removeChannel(channel);
     };
-  }, [session, selectedChat?.conversation_id]);
+  }, [session, selectedChat?.conversation_id, messageRefreshKey]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -820,7 +859,8 @@ export default function Home() {
   function openChat(chat: Chat) {
     setSelectedChat(chat);
     setMobileChatOpen(true);
-    setMessages([]);
+    setMessages(messageCacheRef.current.get(chat.conversation_id) ?? []);
+    setMessagesLoading(!messageCacheRef.current.has(chat.conversation_id));
     setError("");
   }
 
@@ -906,17 +946,17 @@ export default function Home() {
       <input ref={imageInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
       <input ref={videoInputRef} type="file" accept="video/*" className="hidden" onChange={handleFileChange} />
 
-      <div className={`relative z-10 mx-auto grid h-[100dvh] max-w-6xl overflow-hidden border backdrop-blur-xl md:h-[calc(100dvh-2rem)] md:grid-cols-[320px_1fr] md:rounded-3xl ${panel}`}>
+      <div className={`relative z-10 mx-auto grid h-[100dvh] w-full max-w-6xl overflow-hidden border backdrop-blur-xl md:h-[calc(100dvh-2rem)] md:grid-cols-[320px_1fr] md:rounded-3xl ${panel}`}>
         <aside
           className={`${mobileChatOpen ? "hidden md:flex" : "flex"} min-h-0 flex-col border-r ${
             isDark ? "border-white/10" : "border-slate-200"
           }`}
         >
-          <header className={`mobile-safe-top relative z-50 flex items-center justify-between border-b p-4 ${isDark ? "border-white/10" : "border-slate-200"}`}>
+          <header className={`mobile-safe-top relative z-50 flex items-center justify-between border-b px-3 py-2.5 md:p-4 ${isDark ? "border-white/10" : "border-slate-200"}`}>
             <div className="flex min-w-0 items-center gap-3">
               <Avatar name={profile?.display_name ?? "H"} isDark={isDark} size="lg" />
               <div className="min-w-0">
-                <h1 className="truncate text-lg font-black">{profile?.display_name ?? "Haaahooo"}</h1>
+                <h1 className="truncate text-base font-black md:text-lg">{profile?.display_name ?? "Haaahooo"}</h1>
                 <p className={`truncate text-xs ${muted}`}>@{profile?.username}</p>
               </div>
             </div>
@@ -929,7 +969,7 @@ export default function Home() {
             </button>
 
             {settingsOpen && (
-              <div className={`absolute right-3 top-[calc(100%+0.5rem)] z-[60] w-72 rounded-2xl border p-3 shadow-2xl ${panel}`}>
+              <div className={`absolute right-3 top-[calc(100%+0.5rem)] z-[60] w-[calc(100vw-1.5rem)] max-w-72 rounded-2xl border p-3 shadow-2xl ${panel}`}>
                 <p className={`mb-2 text-xs font-bold uppercase ${muted}`}>Profile</p>
                 <input className={`mb-2 w-full rounded-xl border px-3 py-2 outline-none ${inputClass}`} value={profileDisplayName} onChange={(event) => setProfileDisplayName(event.target.value)} placeholder="Display name" />
                 <input className={`mb-3 w-full rounded-xl border px-3 py-2 outline-none ${inputClass}`} value={profileUsername} onChange={(event) => setProfileUsername(event.target.value.toLowerCase())} placeholder="Username" />
@@ -959,7 +999,7 @@ export default function Home() {
             )}
           </header>
 
-          <div className="grid grid-cols-2 gap-2 p-3">
+          <div className="grid grid-cols-2 gap-2 px-3 py-2 md:p-3">
             <button onClick={() => setSidebarView("chats")} className={`rounded-xl py-2 text-sm font-bold ${sidebarView === "chats" ? isDark ? "bg-violet-400 text-slate-950" : "bg-slate-950 text-white" : isDark ? "bg-white/10" : "bg-slate-100"}`}>Chats</button>
             <button onClick={() => setSidebarView("friends")} className={`relative rounded-xl py-2 text-sm font-bold ${sidebarView === "friends" ? isDark ? "bg-violet-400 text-slate-950" : "bg-slate-950 text-white" : isDark ? "bg-white/10" : "bg-slate-100"}`}>
               Friends
@@ -1056,17 +1096,35 @@ export default function Home() {
         <section className={`${mobileChatOpen ? "flex" : "hidden md:flex"} min-h-0 flex-col`}>
           {selectedChat ? (
             <>
-              <header className={`mobile-safe-top flex items-center gap-3 border-b p-3 md:p-4 ${isDark ? "border-white/10" : "border-slate-200"}`}>
-                <button onClick={() => setMobileChatOpen(false)} className={`h-10 w-10 rounded-full text-xl md:hidden ${isDark ? "bg-white/10" : "bg-slate-100"}`} aria-label="Back to chats">‹</button>
+              <header className={`mobile-safe-top flex min-h-14 items-center gap-2 border-b px-2.5 py-2 md:gap-3 md:p-4 ${isDark ? "border-white/10" : "border-slate-200"}`}>
+                <button onClick={() => setMobileChatOpen(false)} className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-2xl md:hidden ${isDark ? "bg-white/10" : "bg-slate-100"}`} aria-label="Back to chats">‹</button>
                 <Avatar name={selectedChat.display_name} isDark={isDark} />
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <h2 className="truncate font-black">{selectedChat.display_name}</h2>
-                  <p className={`truncate text-xs ${muted}`}>@{selectedChat.username}</p>
+                  <p className={`hidden truncate text-xs min-[380px]:block ${muted}`}>@{selectedChat.username}</p>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    messageCacheRef.current.delete(selectedChat.conversation_id);
+                    setMessagesLoading(true);
+                    setMessageRefreshKey((current) => current + 1);
+                  }}
+                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-lg ${isDark ? "bg-white/10" : "bg-slate-100"}`}
+                  aria-label="Refresh messages"
+                  title="Refresh messages"
+                >
+                  ↻
+                </button>
               </header>
 
-              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3 md:p-4" onClick={() => { setMediaOpen(false); setEmojiOpen(false); }}>
-                {messages.length === 0 && (
+              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2.5 py-3 md:p-4" onClick={() => { setMediaOpen(false); setEmojiOpen(false); }}>
+                {messagesLoading && messages.length === 0 && (
+                  <div className={`mx-auto mt-20 max-w-sm text-center text-sm ${muted}`}>
+                    Loading message history...
+                  </div>
+                )}
+                {!messagesLoading && messages.length === 0 && (
                   <div className={`mx-auto mt-20 max-w-sm text-center ${muted}`}>
                     <p className="mb-3 text-4xl">👋</p>
                     <p>This chat is empty. Say hello to {selectedChat.display_name}.</p>
@@ -1076,8 +1134,8 @@ export default function Home() {
                   const bot = message.is_bot;
                   const mine = message.sender_id === session.user.id;
                   return (
-                    <div key={message.id} className={`mb-3 flex ${mine && !bot ? "justify-end" : "justify-start"}`}>
-                      <div className={`max-w-[86%] rounded-3xl px-4 py-3 shadow-sm md:max-w-[72%] ${
+                    <div key={message.id} className={`mb-2.5 flex md:mb-3 ${mine && !bot ? "justify-end" : "justify-start"}`}>
+                      <div className={`max-w-[88%] rounded-3xl px-3.5 py-2.5 shadow-sm md:max-w-[72%] md:px-4 md:py-3 ${
                         bot
                           ? isDark ? "rounded-tl-md border border-amber-300/40 bg-amber-300/20 text-amber-50" : "rounded-tl-md border border-amber-300 bg-amber-100 text-amber-950"
                           : mine
@@ -1094,19 +1152,19 @@ export default function Home() {
                 <div ref={bottomRef} />
               </div>
 
-              <footer className={`mobile-safe-bottom relative border-t p-3 md:p-4 ${isDark ? "border-white/10" : "border-slate-200"}`}>
-                <div className="flex items-end gap-2">
+              <footer className={`mobile-safe-bottom relative border-t px-2.5 py-2 md:p-4 ${isDark ? "border-white/10" : "border-slate-200"}`}>
+                <div className="flex items-end gap-1.5 md:gap-2">
                   <div className="relative">
                     <button
                       disabled={uploading || isRecording}
                       onClick={() => { setMediaOpen((current) => !current); setEmojiOpen(false); }}
-                      className={`flex h-12 w-12 items-center justify-center rounded-full text-2xl disabled:opacity-50 ${isDark ? "bg-white/10" : "bg-white"}`}
+                      className={`flex h-11 w-11 items-center justify-center rounded-full text-2xl disabled:opacity-50 md:h-12 md:w-12 ${isDark ? "bg-white/10" : "bg-white"}`}
                       aria-label="Open media menu"
                     >
                       +
                     </button>
                     {mediaOpen && (
-                      <div className={`absolute bottom-[calc(100%+0.75rem)] left-0 z-40 w-64 rounded-2xl border p-2 shadow-2xl ${panel}`}>
+                      <div className={`absolute bottom-[calc(100%+0.75rem)] left-0 z-40 w-[min(16rem,calc(100vw-1.25rem))] rounded-2xl border p-2 shadow-2xl ${panel}`}>
                         <button onClick={() => { setMediaOpen(false); imageInputRef.current?.click(); }} className={`w-full rounded-xl px-3 py-3 text-left text-sm font-semibold ${isDark ? "hover:bg-white/10" : "hover:bg-slate-100"}`}>📷 Photo</button>
                         <button onClick={() => { setMediaOpen(false); videoInputRef.current?.click(); }} className={`w-full rounded-xl px-3 py-3 text-left text-sm font-semibold ${isDark ? "hover:bg-white/10" : "hover:bg-slate-100"}`}>🎥 Video</button>
                         <button onClick={() => void startRecording()} className={`w-full rounded-xl px-3 py-3 text-left text-sm font-semibold ${isDark ? "hover:bg-white/10" : "hover:bg-slate-100"}`}>🎙 Voice note</button>
@@ -1123,7 +1181,7 @@ export default function Home() {
                   </div>
                   {isRecording && <button onClick={stopRecording} className="h-12 rounded-full bg-red-500 px-4 text-sm font-bold text-white">Stop</button>}
                   <input
-                    className={`min-w-0 flex-1 rounded-2xl border px-4 py-3 outline-none md:h-14 ${inputClass}`}
+                    className={`h-11 min-w-0 flex-1 rounded-2xl border px-3 py-2 outline-none md:h-14 md:px-4 md:py-3 ${inputClass}`}
                     placeholder={`Message ${selectedChat.display_name}`}
                     value={text}
                     onChange={(event) => setText(event.target.value)}
@@ -1131,7 +1189,7 @@ export default function Home() {
                       if (event.key === "Enter") void sendMessage();
                     }}
                   />
-                  <button onClick={() => void sendMessage()} className={`h-12 rounded-2xl px-4 font-bold md:h-14 md:px-6 ${isDark ? "bg-violet-400 text-slate-950" : "bg-slate-950 text-white"}`}>Send</button>
+                  <button onClick={() => void sendMessage()} className={`h-11 min-w-[4.5rem] shrink-0 rounded-2xl px-3 font-bold md:h-14 md:px-6 ${isDark ? "bg-violet-400 text-slate-950" : "bg-slate-950 text-white"}`}>Send</button>
                 </div>
                 {uploading && <p className={`mt-2 text-xs ${muted}`}>Uploading...</p>}
                 {error && <p className="mt-2 rounded-xl bg-red-500/15 p-2 text-sm text-red-500">{error}</p>}
