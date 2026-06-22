@@ -192,6 +192,7 @@ export default function Home() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [profileUsername, setProfileUsername] = useState("");
   const [profileDisplayName, setProfileDisplayName] = useState("");
+  const [profileStatus, setProfileStatus] = useState("");
   const [chats, setChats] = useState<Chat[]>([]);
   const [requests, setRequests] = useState<FriendRequest[]>([]);
   const [selectedChat, setSelectedChat] = useState<Chat | null>(null);
@@ -482,30 +483,43 @@ export default function Home() {
 
   async function saveProfile() {
     if (!profile) return;
+    setProfileStatus("");
     const username = profileUsername.trim().toLowerCase();
     const displayName = profileDisplayName.trim();
 
-    if (!USERNAME_PATTERN.test(username) || !displayName) {
-      setError("Use a valid username and display name.");
+    if (!USERNAME_PATTERN.test(username)) {
+      setProfileStatus(
+        "Username must be 3-24 lowercase letters, numbers, or underscores.",
+      );
       return;
     }
 
-    const { error: updateError } = await supabase
+    if (!displayName) {
+      setProfileStatus("Display name cannot be empty.");
+      return;
+    }
+
+    const { data: updatedProfile, error: updateError } = await supabase
       .from("profiles")
       .update({
         username,
         display_name: displayName,
         updated_at: new Date().toISOString(),
       })
-      .eq("id", profile.id);
+      .eq("id", profile.id)
+      .select("id, username, display_name, avatar_url")
+      .single();
 
     if (updateError) {
-      setError(updateError.message);
+      setProfileStatus(updateError.message);
       return;
     }
 
-    await loadProfile();
-    setSettingsOpen(false);
+    const nextProfile = updatedProfile as Profile;
+    setProfile(nextProfile);
+    setProfileUsername(nextProfile.username);
+    setProfileDisplayName(nextProfile.display_name);
+    setProfileStatus("Profile saved.");
   }
 
   async function enableNotifications() {
@@ -828,7 +842,18 @@ export default function Home() {
                 <p className={`mb-2 text-xs font-bold uppercase ${muted}`}>Profile</p>
                 <input className={`mb-2 w-full rounded-xl border px-3 py-2 outline-none ${inputClass}`} value={profileDisplayName} onChange={(event) => setProfileDisplayName(event.target.value)} placeholder="Display name" />
                 <input className={`mb-3 w-full rounded-xl border px-3 py-2 outline-none ${inputClass}`} value={profileUsername} onChange={(event) => setProfileUsername(event.target.value.toLowerCase())} placeholder="Username" />
-                <button onClick={() => void saveProfile()} className={`mb-3 w-full rounded-xl py-2 font-bold ${isDark ? "bg-violet-400 text-slate-950" : "bg-slate-950 text-white"}`}>Save profile</button>
+                <button type="button" onClick={() => void saveProfile()} className={`mb-2 w-full rounded-xl py-2 font-bold ${isDark ? "bg-violet-400 text-slate-950" : "bg-slate-950 text-white"}`}>Save profile</button>
+                {profileStatus && (
+                  <p
+                    className={`mb-3 rounded-xl p-2 text-xs ${
+                      profileStatus === "Profile saved."
+                        ? "bg-emerald-500/15 text-emerald-500"
+                        : "bg-red-500/15 text-red-500"
+                    }`}
+                  >
+                    {profileStatus}
+                  </p>
+                )}
                 <p className={`mb-2 text-xs font-bold uppercase ${muted}`}>Theme</p>
                 <div className="mb-3 grid grid-cols-3 gap-2">
                   <ThemeButton label="Auto" value="auto" selected={themeMode} onClick={setThemeMode} isDark={isDark} />
