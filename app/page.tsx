@@ -67,6 +67,22 @@ const CHAT_EMOJIS = [
   "✨", "🔥", "👍", "👏", "🙏", "🎉", "☕", "🐮",
 ];
 
+const STARS = Array.from({ length: 75 }, (_, index) => ({
+  left: (index * 37) % 100,
+  top: ((index * 53) % 78) + 3,
+  size: (index % 3) + 1,
+  opacity: 0.35 + (index % 5) * 0.12,
+  delay: (index % 10) * 0.25,
+  speed: 2 + (index % 4),
+}));
+
+const CLOUDS = [
+  { left: 4, top: 12, scale: 1.1, duration: 28 },
+  { left: 24, top: 22, scale: 0.8, duration: 35 },
+  { left: 62, top: 14, scale: 1.25, duration: 40 },
+  { left: 78, top: 32, scale: 0.9, duration: 32 },
+];
+
 function getTimeBasedTheme(): EffectiveTheme {
   const hour = new Date().getHours();
   return hour >= 6 && hour < 18 ? "light" : "dark";
@@ -179,6 +195,88 @@ function MessageContent({ message }: { message: Message }) {
   }
 
   return <audio src={message.file_url} controls className="max-w-full" />;
+}
+
+function SkyBackground({ theme }: { theme: EffectiveTheme }) {
+  const dark = theme === "dark";
+
+  return (
+    <div
+      className={`pointer-events-none absolute inset-0 overflow-hidden transition-colors duration-700 ${
+        dark
+          ? "bg-gradient-to-br from-slate-950 via-indigo-950 to-black"
+          : "bg-gradient-to-br from-sky-200 via-blue-100 to-amber-100"
+      }`}
+    >
+      <style>
+        {`
+          @keyframes floatCloud {
+            0%, 100% { transform: translateX(0); }
+            50% { transform: translateX(22px); }
+          }
+          @keyframes twinkle {
+            0%, 100% { transform: scale(1); opacity: 0.35; }
+            50% { transform: scale(1.8); opacity: 1; }
+          }
+          @keyframes glowPulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.06); }
+          }
+        `}
+      </style>
+
+      {dark ? (
+        <>
+          <div className="absolute right-12 top-10 h-28 w-28 rounded-full bg-slate-100 shadow-[0_0_70px_rgba(226,232,240,0.65)]">
+            <div className="absolute -right-4 -top-2 h-28 w-28 rounded-full bg-indigo-950" />
+          </div>
+          {STARS.map((star, index) => (
+            <span
+              key={index}
+              className="absolute rounded-full bg-white"
+              style={{
+                left: `${star.left}%`,
+                top: `${star.top}%`,
+                width: star.size,
+                height: star.size,
+                opacity: star.opacity,
+                animation: `twinkle ${star.speed}s ease-in-out infinite`,
+                animationDelay: `${star.delay}s`,
+              }}
+            />
+          ))}
+        </>
+      ) : (
+        <>
+          <div
+            className="absolute right-10 top-10 h-28 w-28 rounded-full bg-yellow-300 shadow-[0_0_80px_rgba(253,224,71,0.9)]"
+            style={{ animation: "glowPulse 5s ease-in-out infinite" }}
+          />
+          {CLOUDS.map((cloud, index) => (
+            <div
+              key={index}
+              className="absolute"
+              style={{
+                left: `${cloud.left}%`,
+                top: `${cloud.top}%`,
+                animation: `floatCloud ${cloud.duration}s ease-in-out infinite`,
+              }}
+            >
+              <div
+                className="relative h-16 w-40"
+                style={{ transform: `scale(${cloud.scale})` }}
+              >
+                <div className="absolute bottom-0 left-2 h-12 w-20 rounded-full bg-white/75 blur-[1px]" />
+                <div className="absolute bottom-4 left-12 h-14 w-14 rounded-full bg-white/80 blur-[1px]" />
+                <div className="absolute bottom-0 left-20 h-12 w-24 rounded-full bg-white/75 blur-[1px]" />
+              </div>
+            </div>
+          ))}
+        </>
+      )}
+      <div className={`absolute inset-0 ${dark ? "bg-black/10" : "bg-white/10"}`} />
+    </div>
+  );
 }
 
 export default function Home() {
@@ -725,14 +823,9 @@ export default function Home() {
 
   if (!session) {
     return (
-      <main
-        className={`flex min-h-[100dvh] items-center justify-center p-4 ${
-          isDark
-            ? "bg-gradient-to-br from-slate-950 via-indigo-950 to-black"
-            : "bg-gradient-to-br from-sky-200 via-blue-100 to-amber-100"
-        }`}
-      >
-        <section className={`w-full max-w-sm rounded-3xl border p-6 shadow-2xl backdrop-blur-xl ${panel}`}>
+      <main className="relative flex min-h-[100dvh] items-center justify-center overflow-hidden p-4">
+        <SkyBackground theme={effectiveTheme} />
+        <section className={`relative z-10 w-full max-w-sm rounded-3xl border p-6 shadow-2xl backdrop-blur-xl ${panel}`}>
           <div className="mb-6 text-center">
             <div className="mb-3 text-5xl">🐮</div>
             <h1 className="text-3xl font-black">Haaahooo</h1>
@@ -805,17 +898,12 @@ export default function Home() {
   }
 
   return (
-    <main
-      className={`min-h-[100dvh] overflow-hidden p-0 md:p-4 ${
-        isDark
-          ? "bg-gradient-to-br from-slate-950 via-indigo-950 to-black"
-          : "bg-gradient-to-br from-sky-200 via-blue-100 to-amber-100"
-      }`}
-    >
+    <main className="relative min-h-[100dvh] overflow-hidden p-0 md:p-4">
+      <SkyBackground theme={effectiveTheme} />
       <input ref={imageInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
       <input ref={videoInputRef} type="file" accept="video/*" className="hidden" onChange={handleFileChange} />
 
-      <div className={`mx-auto grid h-[100dvh] max-w-6xl overflow-hidden border backdrop-blur-xl md:h-[calc(100dvh-2rem)] md:grid-cols-[320px_1fr] md:rounded-3xl ${panel}`}>
+      <div className={`relative z-10 mx-auto grid h-[100dvh] max-w-6xl overflow-hidden border backdrop-blur-xl md:h-[calc(100dvh-2rem)] md:grid-cols-[320px_1fr] md:rounded-3xl ${panel}`}>
         <aside
           className={`${mobileChatOpen ? "hidden md:flex" : "flex"} min-h-0 flex-col border-r ${
             isDark ? "border-white/10" : "border-slate-200"
