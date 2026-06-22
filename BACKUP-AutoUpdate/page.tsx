@@ -4,7 +4,6 @@ import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabaseClient";
 import {
-  setupAutomaticAppUpdates,
   setupPushNotifications,
   sendPushNotification,
 } from "@/lib/clientNotifications";
@@ -275,8 +274,6 @@ export default function Home() {
     themeMode === "auto" ? timeTheme : themeMode;
 
   const isDark = effectiveTheme === "dark";
-
-  useEffect(() => setupAutomaticAppUpdates(), []);
 
   useEffect(() => {
     const savedTheme = localStorage.getItem(THEME_STORAGE_KEY) as ThemeMode | null;
