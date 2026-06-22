@@ -597,23 +597,26 @@ export default function Home() {
       return;
     }
 
-    const { data: updatedProfile, error: updateError } = await supabase
-      .from("profiles")
-      .update({
-        username,
-        display_name: displayName,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", profile.id)
-      .select("id, username, display_name, avatar_url")
-      .single();
+    const { data: updatedProfiles, error: updateError } = await supabase.rpc(
+      "update_my_profile",
+      {
+        new_username: username,
+        new_display_name: displayName,
+      },
+    );
 
     if (updateError) {
       setProfileStatus(updateError.message);
       return;
     }
 
-    const nextProfile = updatedProfile as Profile;
+    const nextProfile = (updatedProfiles as Profile[] | null)?.[0];
+
+    if (!nextProfile) {
+      setProfileStatus("Profile was not updated.");
+      return;
+    }
+
     setProfile(nextProfile);
     setProfileUsername(nextProfile.username);
     setProfileDisplayName(nextProfile.display_name);
