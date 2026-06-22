@@ -9,12 +9,46 @@ import {
 } from "@/lib/clientNotifications";
 
 type MessageType = "text" | "image" | "video" | "audio";
+type ThemeMode = "auto" | "light" | "dark";
+type EffectiveTheme = "light" | "dark";
+type SidebarView = "chats" | "friends";
+
+type Profile = {
+  id: string;
+  username: string;
+  display_name: string;
+  avatar_url: string | null;
+};
+
+type Chat = {
+  conversation_id: string;
+  friend_id: string;
+  username: string;
+  display_name: string;
+  avatar_url: string | null;
+  last_message: string | null;
+  last_message_at: string | null;
+};
+
+type FriendRequest = {
+  request_id: string;
+  sender_id: string;
+  username: string;
+  display_name: string;
+  avatar_url: string | null;
+  created_at: string;
+};
+
+type SearchResult = Profile & {
+  relationship: "none" | "friends" | "sent" | "received";
+};
 
 type Message = {
   id: string;
+  conversation_id: string;
   sender_id: string | null;
-  sender_name?: string | null;
-  is_bot?: boolean;
+  sender_name: string | null;
+  is_bot: boolean;
   body: string | null;
   created_at: string;
   message_type: MessageType;
@@ -24,53 +58,13 @@ type Message = {
   file_url?: string | null;
 };
 
-type ThemeMode = "auto" | "light" | "dark";
-type EffectiveTheme = "light" | "dark";
-
 const THEME_STORAGE_KEY = "private-chat-theme-mode";
 const MEDIA_BUCKET = "chat-media";
-
-const STARS = Array.from({ length: 75 }, (_, i) => ({
-  left: (i * 37) % 100,
-  top: ((i * 53) % 78) + 3,
-  size: (i % 3) + 1,
-  opacity: 0.35 + (i % 5) * 0.12,
-  delay: (i % 10) * 0.25,
-  speed: 2 + (i % 4),
-}));
-
-const CLOUDS = [
-  { left: 4, top: 12, scale: 1.1, duration: 28 },
-  { left: 24, top: 22, scale: 0.8, duration: 35 },
-  { left: 62, top: 14, scale: 1.25, duration: 40 },
-  { left: 78, top: 32, scale: 0.9, duration: 32 },
-];
-
+const USERNAME_PATTERN = /^[a-z0-9_]{3,24}$/;
 const CHAT_EMOJIS = [
-  "😀",
-  "😂",
-  "🥰",
-  "😍",
-  "😊",
-  "😉",
-  "🥹",
-  "😭",
-  "😅",
-  "😎",
-  "🤔",
-  "🙄",
-  "😴",
-  "😡",
-  "❤️",
-  "💕",
-  "✨",
-  "🔥",
-  "👍",
-  "👏",
-  "🙏",
-  "🎉",
-  "☕",
-  "🐮",
+  "😀", "😂", "🥰", "😍", "😊", "😉", "🥹", "😭",
+  "😅", "😎", "🤔", "🙄", "😴", "😡", "❤️", "💕",
+  "✨", "🔥", "👍", "👏", "🙏", "🎉", "☕", "🐮",
 ];
 
 function getTimeBasedTheme(): EffectiveTheme {
@@ -89,88 +83,36 @@ function getMessageTypeFromFile(file: File): MessageType | null {
   return null;
 }
 
-function SkyBackground({ theme }: { theme: EffectiveTheme }) {
-  const isDark = theme === "dark";
+function getInitials(value: string) {
+  return value
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("") || "?";
+}
+
+function Avatar({
+  name,
+  isDark,
+  size = "md",
+}: {
+  name: string;
+  isDark: boolean;
+  size?: "sm" | "md" | "lg";
+}) {
+  const sizeClass =
+    size === "sm" ? "h-9 w-9 text-xs" : size === "lg" ? "h-12 w-12" : "h-10 w-10 text-sm";
 
   return (
     <div
-      className={`pointer-events-none absolute inset-0 overflow-hidden transition-colors duration-700 ${
+      className={`flex shrink-0 items-center justify-center rounded-full font-black ${sizeClass} ${
         isDark
-          ? "bg-gradient-to-br from-slate-950 via-indigo-950 to-black"
-          : "bg-gradient-to-br from-sky-200 via-blue-100 to-amber-100"
+          ? "bg-violet-400 text-slate-950"
+          : "bg-sky-500 text-white"
       }`}
     >
-      <style>
-        {`
-          @keyframes floatCloud {
-            0% { transform: translateX(0px); }
-            50% { transform: translateX(22px); }
-            100% { transform: translateX(0px); }
-          }
-
-          @keyframes twinkle {
-            0%, 100% { transform: scale(1); opacity: 0.35; }
-            50% { transform: scale(1.8); opacity: 1; }
-          }
-
-          @keyframes glowPulse {
-            0%, 100% { transform: scale(1); }
-            50% { transform: scale(1.06); }
-          }
-        `}
-      </style>
-
-      {!isDark ? (
-        <>
-          <div
-            className="absolute right-10 top-10 h-28 w-28 rounded-full bg-yellow-300 shadow-[0_0_80px_rgba(253,224,71,0.9)]"
-            style={{ animation: "glowPulse 5s ease-in-out infinite" }}
-          />
-
-          {CLOUDS.map((cloud, index) => (
-            <div
-              key={index}
-              className="absolute"
-              style={{
-                left: `${cloud.left}%`,
-                top: `${cloud.top}%`,
-                transform: `scale(${cloud.scale})`,
-                animation: `floatCloud ${cloud.duration}s ease-in-out infinite`,
-              }}
-            >
-              <div className="relative h-16 w-40">
-                <div className="absolute bottom-0 left-2 h-12 w-20 rounded-full bg-white/75 blur-[1px]" />
-                <div className="absolute bottom-4 left-12 h-14 w-14 rounded-full bg-white/80 blur-[1px]" />
-                <div className="absolute bottom-0 left-20 h-12 w-24 rounded-full bg-white/75 blur-[1px]" />
-              </div>
-            </div>
-          ))}
-        </>
-      ) : (
-        <>
-          <div className="absolute right-12 top-10 h-28 w-28 rounded-full bg-slate-100 shadow-[0_0_70px_rgba(226,232,240,0.65)]">
-            <div className="absolute -right-4 -top-2 h-28 w-28 rounded-full bg-indigo-950" />
-          </div>
-
-          {STARS.map((star, index) => (
-            <span
-              key={index}
-              className="absolute rounded-full bg-white"
-              style={{
-                left: `${star.left}%`,
-                top: `${star.top}%`,
-                width: star.size,
-                height: star.size,
-                opacity: star.opacity,
-                animation: `twinkle ${star.speed}s ease-in-out infinite`,
-                animationDelay: `${star.delay}s`,
-              }}
-            />
-          ))}
-        </>
-      )}
-
-      <div className={`absolute inset-0 ${isDark ? "bg-black/10" : "bg-white/10"}`} />
+      {getInitials(name)}
     </div>
   );
 }
@@ -188,19 +130,18 @@ function ThemeButton({
   onClick: (value: ThemeMode) => void;
   isDark: boolean;
 }) {
-  const active = selected === value;
-
   return (
     <button
+      type="button"
       onClick={() => onClick(value)}
-      className={`rounded-full px-4 py-2 text-sm font-medium transition ${
-        active
+      className={`rounded-full px-3 py-2 text-sm font-semibold transition ${
+        selected === value
           ? isDark
             ? "bg-white text-slate-950"
             : "bg-slate-950 text-white"
           : isDark
-            ? "bg-white/10 text-white hover:bg-white/20"
-            : "bg-white/60 text-slate-700 hover:bg-white"
+            ? "bg-white/10 hover:bg-white/20"
+            : "bg-slate-100 hover:bg-slate-200"
       }`}
     >
       {label}
@@ -222,7 +163,7 @@ function MessageContent({ message }: { message: Message }) {
       <img
         src={message.file_url}
         alt={message.file_name ?? "Shared image"}
-        className="max-h-80 rounded-2xl object-contain"
+        className="max-h-80 max-w-full rounded-2xl object-contain"
       />
     );
   }
@@ -237,17 +178,29 @@ function MessageContent({ message }: { message: Message }) {
     );
   }
 
-  if (message.message_type === "audio") {
-    return <audio src={message.file_url} controls className="max-w-full" />;
-  }
-
-  return null;
+  return <audio src={message.file_url} controls className="max-w-full" />;
 }
 
 export default function Home() {
   const [session, setSession] = useState<Session | null>(null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [signupUsername, setSignupUsername] = useState("");
+  const [signupDisplayName, setSignupDisplayName] = useState("");
+  const [showSignup, setShowSignup] = useState(false);
+
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [profileUsername, setProfileUsername] = useState("");
+  const [profileDisplayName, setProfileDisplayName] = useState("");
+  const [chats, setChats] = useState<Chat[]>([]);
+  const [requests, setRequests] = useState<FriendRequest[]>([]);
+  const [selectedChat, setSelectedChat] = useState<Chat | null>(null);
+  const [sidebarView, setSidebarView] = useState<SidebarView>("chats");
+  const [mobileChatOpen, setMobileChatOpen] = useState(false);
+
+  const [friendSearch, setFriendSearch] = useState("");
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [searching, setSearching] = useState(false);
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [text, setText] = useState("");
@@ -257,11 +210,10 @@ export default function Home() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [mediaOpen, setMediaOpen] = useState(false);
   const [emojiOpen, setEmojiOpen] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
 
   const [themeMode, setThemeMode] = useState<ThemeMode>("auto");
   const [timeTheme, setTimeTheme] = useState<EffectiveTheme>("light");
-
-  const [isRecording, setIsRecording] = useState(false);
 
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
@@ -272,23 +224,24 @@ export default function Home() {
 
   const effectiveTheme: EffectiveTheme =
     themeMode === "auto" ? timeTheme : themeMode;
-
   const isDark = effectiveTheme === "dark";
+  const panel = isDark
+    ? "border-white/10 bg-slate-950/85 text-white"
+    : "border-white/80 bg-white/85 text-slate-950";
+  const muted = isDark ? "text-white/55" : "text-slate-500";
+  const inputClass = isDark
+    ? "border-white/10 bg-white/10 text-white placeholder:text-white/40 focus:border-violet-300"
+    : "border-slate-200 bg-white text-slate-950 placeholder:text-slate-400 focus:border-sky-400";
 
   useEffect(() => {
     const savedTheme = localStorage.getItem(THEME_STORAGE_KEY) as ThemeMode | null;
-
     if (savedTheme === "auto" || savedTheme === "light" || savedTheme === "dark") {
       setThemeMode(savedTheme);
     }
 
     setTimeTheme(getTimeBasedTheme());
-
-    const timer = setInterval(() => {
-      setTimeTheme(getTimeBasedTheme());
-    }, 60 * 1000);
-
-    return () => clearInterval(timer);
+    const timer = window.setInterval(() => setTimeTheme(getTimeBasedTheme()), 60_000);
+    return () => window.clearInterval(timer);
   }, []);
 
   useEffect(() => {
@@ -296,79 +249,179 @@ export default function Home() {
   }, [themeMode]);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
+    void supabase.auth.getSession().then(({ data }) => setSession(data.session));
+    const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      setSession(nextSession);
     });
-
-    const { data } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-    });
-
-    return () => {
-      data.subscription.unsubscribe();
-    };
+    return () => data.subscription.unsubscribe();
   }, []);
 
-  async function addSignedUrls(rows: Message[]): Promise<Message[]> {
+  async function addSignedUrls(rows: Message[]) {
     return Promise.all(
       rows.map(async (message) => {
         if (!message.file_path) return message;
-
-        const { data, error } = await supabase.storage
+        const { data, error: signedUrlError } = await supabase.storage
           .from(MEDIA_BUCKET)
           .createSignedUrl(message.file_path, 60 * 60);
-
-        if (error) {
-          return { ...message, file_url: null };
-        }
-
-        return { ...message, file_url: data.signedUrl };
-      })
+        return {
+          ...message,
+          file_url: signedUrlError ? null : data.signedUrl,
+        };
+      }),
     );
   }
 
-  useEffect(() => {
+  async function loadProfile() {
     if (!session) return;
+    const { data, error: profileError } = await supabase
+      .from("profiles")
+      .select("id, username, display_name, avatar_url")
+      .eq("id", session.user.id)
+      .single();
+
+    if (profileError) {
+      setError(profileError.message);
+      return;
+    }
+
+    const nextProfile = data as Profile;
+    setProfile(nextProfile);
+    setProfileUsername(nextProfile.username);
+    setProfileDisplayName(nextProfile.display_name);
+  }
+
+  async function loadChats(preferredConversationId?: string) {
+    if (!session) return;
+    const { data, error: chatsError } = await supabase.rpc("get_my_chats");
+
+    if (chatsError) {
+      setError(chatsError.message);
+      return;
+    }
+
+    const nextChats = (data ?? []) as Chat[];
+    setChats(nextChats);
+    setSelectedChat((current) => {
+      const linkedConversationId =
+        typeof window === "undefined"
+          ? undefined
+          : new URLSearchParams(window.location.search).get("conversation") ??
+            undefined;
+      const targetId =
+        preferredConversationId ??
+        linkedConversationId ??
+        current?.conversation_id;
+      return (
+        nextChats.find((chat) => chat.conversation_id === targetId) ??
+        nextChats[0] ??
+        null
+      );
+    });
+
+    if (
+      typeof window !== "undefined" &&
+      new URLSearchParams(window.location.search).has("conversation")
+    ) {
+      setMobileChatOpen(true);
+    }
+  }
+
+  async function loadRequests() {
+    if (!session) return;
+    const { data, error: requestsError } = await supabase.rpc(
+      "get_incoming_friend_requests",
+    );
+    if (requestsError) {
+      setError(requestsError.message);
+      return;
+    }
+    setRequests((data ?? []) as FriendRequest[]);
+  }
+
+  useEffect(() => {
+    if (!session) {
+      setProfile(null);
+      setChats([]);
+      setRequests([]);
+      setSelectedChat(null);
+      return;
+    }
+
+    void Promise.all([loadProfile(), loadChats(), loadRequests()]);
+
+    const socialChannel = supabase
+      .channel(`social-${session.user.id}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "friend_requests" },
+        () => void loadRequests(),
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "friendships" },
+        () => void loadChats(),
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(socialChannel);
+    };
+  }, [session]);
+
+  useEffect(() => {
+    if (!session || !selectedChat) {
+      setMessages([]);
+      return;
+    }
+
+    let active = true;
 
     async function loadMessages() {
-      const { data, error } = await supabase
+      const { data, error: messagesError } = await supabase
         .from("messages")
         .select("*")
+        .eq("conversation_id", selectedChat!.conversation_id)
         .order("created_at", { ascending: true });
 
-      if (error) {
-        setError(error.message);
+      if (messagesError) {
+        setError(messagesError.message);
         return;
       }
 
       const rows = await addSignedUrls((data ?? []) as Message[]);
-      setMessages(rows);
+      if (active) setMessages(rows);
     }
 
-    loadMessages();
+    void loadMessages();
 
     const channel = supabase
-      .channel("private-chat-room")
+      .channel(`conversation-${selectedChat.conversation_id}`)
       .on(
         "postgres_changes",
         {
           event: "INSERT",
           schema: "public",
           table: "messages",
+          filter: `conversation_id=eq.${selectedChat.conversation_id}`,
         },
         async (payload) => {
-          const newMessage = payload.new as Message;
-          const [messageWithUrl] = await addSignedUrls([newMessage]);
-
-          setMessages((current) => [...current, messageWithUrl]);
-        }
+          const [messageWithUrl] = await addSignedUrls([payload.new as Message]);
+          if (!active) return;
+          setMessages((current) =>
+            current.some((message) => message.id === messageWithUrl.id)
+              ? current
+              : [...current, messageWithUrl],
+          );
+          void loadChats(selectedChat.conversation_id);
+        },
       )
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      active = false;
+      void supabase.removeChannel(channel);
     };
-  }, [session]);
+  }, [session, selectedChat?.conversation_id]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -376,147 +429,211 @@ export default function Home() {
 
   async function signUp() {
     setError("");
+    const username = signupUsername.trim().toLowerCase();
+    const displayName = signupDisplayName.trim();
 
-    if (!email || !password) {
-      setError("Please enter email and password.");
+    if (!email || !password || !username || !displayName) {
+      setError("Complete all signup fields.");
       return;
     }
 
-    const { error } = await supabase.auth.signUp({
+    if (!USERNAME_PATTERN.test(username)) {
+      setError("Username must be 3-24 lowercase letters, numbers, or underscores.");
+      return;
+    }
+
+    const { error: signupError } = await supabase.auth.signUp({
       email,
       password,
+      options: {
+        data: {
+          username,
+          display_name: displayName,
+        },
+      },
     });
 
-    if (error) {
-      setError(error.message);
+    if (signupError) {
+      setError(signupError.message);
       return;
     }
 
-    alert("Signup done. Now add this user in Supabase allowed_users table.");
+    alert("Account created. Check your email if confirmation is enabled, then log in.");
+    setShowSignup(false);
   }
 
   async function signIn() {
     setError("");
-
     if (!email || !password) {
       setError("Please enter email and password.");
       return;
     }
-
-    const { error } = await supabase.auth.signInWithPassword({
+    const { error: signInError } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
-
-    if (error) {
-      setError(error.message);
-    }
+    if (signInError) setError(signInError.message);
   }
 
   async function signOut() {
     setSettingsOpen(false);
     await supabase.auth.signOut();
-    setMessages([]);
+  }
+
+  async function saveProfile() {
+    if (!profile) return;
+    const username = profileUsername.trim().toLowerCase();
+    const displayName = profileDisplayName.trim();
+
+    if (!USERNAME_PATTERN.test(username) || !displayName) {
+      setError("Use a valid username and display name.");
+      return;
+    }
+
+    const { error: updateError } = await supabase
+      .from("profiles")
+      .update({
+        username,
+        display_name: displayName,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", profile.id);
+
+    if (updateError) {
+      setError(updateError.message);
+      return;
+    }
+
+    await loadProfile();
+    setSettingsOpen(false);
   }
 
   async function enableNotifications() {
     setError("");
-
     try {
       await setupPushNotifications();
       setNotificationsOn(true);
-      setSettingsOpen(false);
-      alert("Notifications enabled!");
-    } catch (error) {
+    } catch (notificationError) {
       setError(
-        error instanceof Error
-          ? error.message
-          : "Could not enable notifications."
+        notificationError instanceof Error
+          ? notificationError.message
+          : "Could not enable notifications.",
       );
+    }
+  }
+
+  async function searchFriends() {
+    const query = friendSearch.trim();
+    if (!query) {
+      setSearchResults([]);
+      return;
+    }
+
+    setSearching(true);
+    const { data, error: searchError } = await supabase.rpc("search_profiles", {
+      search_text: query,
+    });
+    setSearching(false);
+
+    if (searchError) {
+      setError(searchError.message);
+      return;
+    }
+    setSearchResults((data ?? []) as SearchResult[]);
+  }
+
+  async function sendFriendRequest(username: string) {
+    const { error: requestError } = await supabase.rpc("send_friend_request", {
+      target_username: username,
+    });
+    if (requestError) {
+      setError(requestError.message);
+      return;
+    }
+    await searchFriends();
+  }
+
+  async function respondToRequest(requestId: string, accept: boolean) {
+    const { data, error: responseError } = await supabase.rpc(
+      "respond_to_friend_request",
+      { request_id: requestId, accept_request: accept },
+    );
+    if (responseError) {
+      setError(responseError.message);
+      return;
+    }
+
+    await Promise.all([loadRequests(), loadChats(data ?? undefined)]);
+    if (accept && data) {
+      setSidebarView("chats");
+      setMobileChatOpen(true);
     }
   }
 
   async function sendMessage() {
     const body = text.trim();
-
-    if (!body || !session?.user.id) return;
-
+    if (!body || !session || !selectedChat) return;
     setText("");
+    setError("");
 
-    const { error } = await supabase.from("messages").insert({
+    const { error: messageError } = await supabase.from("messages").insert({
+      conversation_id: selectedChat.conversation_id,
       body,
       sender_id: session.user.id,
       message_type: "text",
+      is_bot: false,
     });
 
-    if (error) {
-      setError(error.message);
+    if (messageError) {
+      setError(messageError.message);
+      setText(body);
       return;
     }
 
-    await sendPushNotification("text");
+    await sendPushNotification("text", selectedChat.conversation_id);
 
     if (/(^|\s)@swiggy\b/i.test(body)) {
-      try {
-        const {
-          data: { session: currentSession },
-        } = await supabase.auth.getSession();
+      const {
+        data: { session: currentSession },
+      } = await supabase.auth.getSession();
+      const response = await fetch("/api/swiggy", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${currentSession?.access_token ?? ""}`,
+        },
+        body: JSON.stringify({
+          message: body,
+          conversationId: selectedChat.conversation_id,
+        }),
+      });
 
-        const response = await fetch("/api/swiggy", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${currentSession?.access_token ?? ""}`,
-          },
-          body: JSON.stringify({ message: body }),
-        });
-
-        if (!response.ok) {
-          const result = (await response.json().catch(() => null)) as
-            | { message?: string }
-            | null;
-          setError(result?.message ?? "Swiggy could not reply right now.");
-        }
-      } catch {
-        setError("Swiggy could not reply right now.");
+      if (!response.ok) {
+        const result = (await response.json().catch(() => null)) as
+          | { message?: string }
+          | null;
+        setError(result?.message ?? "Swiggy could not reply right now.");
       }
     }
   }
 
   async function uploadFile(file: File, forcedType?: MessageType) {
-    setError("");
-
-    if (!session?.user.id) {
-      setError("You must be logged in.");
-      return;
-    }
-
+    if (!session || !selectedChat) return;
     const messageType = forcedType ?? getMessageTypeFromFile(file);
-
     if (!messageType) {
       setError("Only image, video, and audio files are allowed.");
       return;
     }
-
-    const maxSize = 50 * 1024 * 1024;
-
-    if (file.size > maxSize) {
+    if (file.size > 50 * 1024 * 1024) {
       setError("File is too large. Max size is 50MB.");
       return;
     }
 
     setUploading(true);
-
-    const filePath = `${session.user.id}/${Date.now()}-${crypto.randomUUID()}-${safeFileName(
-      file.name
-    )}`;
-
+    const filePath = `${selectedChat.conversation_id}/${session.user.id}/${Date.now()}-${crypto.randomUUID()}-${safeFileName(file.name)}`;
     const { error: uploadError } = await supabase.storage
       .from(MEDIA_BUCKET)
-      .upload(filePath, file, {
-        contentType: file.type,
-        upsert: false,
-      });
+      .upload(filePath, file, { contentType: file.type, upsert: false });
 
     if (uploadError) {
       setUploading(false);
@@ -525,71 +642,54 @@ export default function Home() {
     }
 
     const { error: messageError } = await supabase.from("messages").insert({
+      conversation_id: selectedChat.conversation_id,
       sender_id: session.user.id,
       body: null,
       message_type: messageType,
       file_path: filePath,
       file_name: file.name,
       file_mime: file.type,
+      is_bot: false,
     });
-
     setUploading(false);
 
     if (messageError) {
       setError(messageError.message);
       return;
     }
-
-    await sendPushNotification(messageType);
+    await sendPushNotification(messageType, selectedChat.conversation_id);
   }
 
   async function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
-
-    if (!file) return;
-
-    await uploadFile(file);
-
+    if (file) await uploadFile(file);
     event.target.value = "";
   }
 
   async function startRecording() {
-    setError("");
     setMediaOpen(false);
     setEmojiOpen(false);
-
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-
       audioStreamRef.current = stream;
       audioChunksRef.current = [];
-
       const recorder = new MediaRecorder(stream);
-
       mediaRecorderRef.current = recorder;
-
       recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          audioChunksRef.current.push(event.data);
-        }
+        if (event.data.size > 0) audioChunksRef.current.push(event.data);
       };
-
       recorder.onstop = async () => {
         const mimeType = recorder.mimeType || "audio/webm";
         const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
-
         const voiceFile = new File(
           [audioBlob],
           `voice-note-${Date.now()}.webm`,
-          { type: mimeType }
+          { type: mimeType },
         );
-
         audioStreamRef.current?.getTracks().forEach((track) => track.stop());
         audioStreamRef.current = null;
-
         await uploadFile(voiceFile, "audio");
       };
-
       recorder.start();
       setIsRecording(true);
     } catch {
@@ -602,464 +702,335 @@ export default function Home() {
     setIsRecording(false);
   }
 
-  const glassPanel = isDark
-    ? "border-white/10 bg-slate-950/60 text-white shadow-2xl shadow-indigo-950/40"
-    : "border-white/70 bg-white/65 text-slate-950 shadow-2xl shadow-sky-200/60";
+  function openChat(chat: Chat) {
+    setSelectedChat(chat);
+    setMobileChatOpen(true);
+    setMessages([]);
+    setError("");
+  }
 
-  const inputClass = isDark
-    ? "border-white/10 bg-white/10 text-white placeholder:text-white/45 focus:border-violet-300"
-    : "border-sky-100 bg-white/80 text-slate-950 placeholder:text-slate-400 focus:border-sky-400";
+  if (!session) {
+    return (
+      <main
+        className={`flex min-h-[100dvh] items-center justify-center p-4 ${
+          isDark
+            ? "bg-gradient-to-br from-slate-950 via-indigo-950 to-black"
+            : "bg-gradient-to-br from-sky-200 via-blue-100 to-amber-100"
+        }`}
+      >
+        <section className={`w-full max-w-sm rounded-3xl border p-6 shadow-2xl backdrop-blur-xl ${panel}`}>
+          <div className="mb-6 text-center">
+            <div className="mb-3 text-5xl">🐮</div>
+            <h1 className="text-3xl font-black">Haaahooo</h1>
+            <p className={`mt-2 ${muted}`}>Private chats with the people you choose.</p>
+          </div>
+
+          <div className="mb-5 flex justify-center gap-2">
+            <ThemeButton label="Auto" value="auto" selected={themeMode} onClick={setThemeMode} isDark={isDark} />
+            <ThemeButton label="Light" value="light" selected={themeMode} onClick={setThemeMode} isDark={isDark} />
+            <ThemeButton label="Dark" value="dark" selected={themeMode} onClick={setThemeMode} isDark={isDark} />
+          </div>
+
+          {showSignup && (
+            <>
+              <input
+                className={`mb-3 w-full rounded-2xl border p-4 outline-none ${inputClass}`}
+                placeholder="Display name"
+                value={signupDisplayName}
+                onChange={(event) => setSignupDisplayName(event.target.value)}
+              />
+              <input
+                className={`mb-3 w-full rounded-2xl border p-4 outline-none ${inputClass}`}
+                placeholder="Username (e.g. affaan_24)"
+                value={signupUsername}
+                onChange={(event) => setSignupUsername(event.target.value.toLowerCase())}
+              />
+            </>
+          )}
+
+          <input
+            className={`mb-3 w-full rounded-2xl border p-4 outline-none ${inputClass}`}
+            placeholder="Email"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+          />
+          <input
+            className={`mb-4 w-full rounded-2xl border p-4 outline-none ${inputClass}`}
+            placeholder="Password"
+            type="password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") void (showSignup ? signUp() : signIn());
+            }}
+          />
+
+          <button
+            onClick={() => void (showSignup ? signUp() : signIn())}
+            className={`mb-3 w-full rounded-2xl p-4 font-bold ${
+              isDark ? "bg-violet-400 text-slate-950" : "bg-slate-950 text-white"
+            }`}
+          >
+            {showSignup ? "Create account" : "Login"}
+          </button>
+          <button
+            onClick={() => {
+              setShowSignup((current) => !current);
+              setError("");
+            }}
+            className={`w-full rounded-2xl border p-4 font-bold ${
+              isDark ? "border-white/15 bg-white/10" : "border-slate-200 bg-white"
+            }`}
+          >
+            {showSignup ? "Back to login" : "Create an account"}
+          </button>
+          {error && <p className="mt-4 rounded-2xl bg-red-500/15 p-3 text-sm text-red-500">{error}</p>}
+        </section>
+      </main>
+    );
+  }
 
   return (
-    <main className="relative min-h-screen overflow-hidden md:min-h-screen">
-      <SkyBackground theme={effectiveTheme} />
+    <main
+      className={`min-h-[100dvh] overflow-hidden p-0 md:p-4 ${
+        isDark
+          ? "bg-gradient-to-br from-slate-950 via-indigo-950 to-black"
+          : "bg-gradient-to-br from-sky-200 via-blue-100 to-amber-100"
+      }`}
+    >
+      <input ref={imageInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
+      <input ref={videoInputRef} type="file" accept="video/*" className="hidden" onChange={handleFileChange} />
 
-      <input
-        ref={imageInputRef}
-        type="file"
-        accept="image/*"
-        className="hidden"
-        onChange={handleFileChange}
-      />
-
-      <input
-        ref={videoInputRef}
-        type="file"
-        accept="video/*"
-        className="hidden"
-        onChange={handleFileChange}
-      />
-
-      <div className="relative z-10 flex min-h-[100dvh] items-center justify-center p-0 md:min-h-screen md:p-4">
-        {!session ? (
-          <div
-            className={`w-full max-w-sm rounded-3xl border p-6 backdrop-blur-xl transition ${glassPanel}`}
-          >
-            <div className="mb-6 text-center">
-              <div className="mb-3 text-5xl">{isDark ? "🌙" : "☀️"}</div>
-              <h1 className="text-3xl font-black tracking-tight">Private Chat</h1>
-              <p className={isDark ? "mt-2 text-white/60" : "mt-2 text-slate-600"}>
-                A cozy chat space for two people.
-              </p>
+      <div className={`mx-auto grid h-[100dvh] max-w-6xl overflow-hidden border backdrop-blur-xl md:h-[calc(100dvh-2rem)] md:grid-cols-[320px_1fr] md:rounded-3xl ${panel}`}>
+        <aside
+          className={`${mobileChatOpen ? "hidden md:flex" : "flex"} min-h-0 flex-col border-r ${
+            isDark ? "border-white/10" : "border-slate-200"
+          }`}
+        >
+          <header className={`mobile-safe-top relative flex items-center justify-between border-b p-4 ${isDark ? "border-white/10" : "border-slate-200"}`}>
+            <div className="flex min-w-0 items-center gap-3">
+              <Avatar name={profile?.display_name ?? "H"} isDark={isDark} size="lg" />
+              <div className="min-w-0">
+                <h1 className="truncate text-lg font-black">{profile?.display_name ?? "Haaahooo"}</h1>
+                <p className={`truncate text-xs ${muted}`}>@{profile?.username}</p>
+              </div>
             </div>
-
-            <div className="mb-5 flex justify-center gap-2">
-              <ThemeButton label="Auto" value="auto" selected={themeMode} onClick={setThemeMode} isDark={isDark} />
-              <ThemeButton label="Light" value="light" selected={themeMode} onClick={setThemeMode} isDark={isDark} />
-              <ThemeButton label="Dark" value="dark" selected={themeMode} onClick={setThemeMode} isDark={isDark} />
-            </div>
-
-            <input
-              className={`mb-3 w-full rounded-2xl border p-4 outline-none transition ${inputClass}`}
-              placeholder="Email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-            />
-
-            <input
-              className={`mb-4 w-full rounded-2xl border p-4 outline-none transition ${inputClass}`}
-              placeholder="Password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-
             <button
-              onClick={signIn}
-              className={`mb-3 w-full rounded-2xl p-4 font-bold transition ${
-                isDark
-                  ? "bg-violet-400 text-slate-950 hover:bg-violet-300"
-                  : "bg-slate-950 text-white hover:bg-slate-800"
-              }`}
+              onClick={() => setSettingsOpen((current) => !current)}
+              className={`h-10 w-10 rounded-full text-xl ${isDark ? "bg-white/10" : "bg-slate-100"}`}
+              aria-label="Open settings"
             >
-              Login
+              ⚙
             </button>
 
-            <button
-              onClick={signUp}
-              className={`w-full rounded-2xl border p-4 font-bold transition ${
-                isDark
-                  ? "border-white/15 bg-white/10 text-white hover:bg-white/20"
-                  : "border-slate-200 bg-white/70 text-slate-900 hover:bg-white"
-              }`}
-            >
-              Sign up
-            </button>
+            {settingsOpen && (
+              <div className={`absolute right-3 top-[calc(100%+0.5rem)] z-50 w-72 rounded-2xl border p-3 shadow-2xl ${panel}`}>
+                <p className={`mb-2 text-xs font-bold uppercase ${muted}`}>Profile</p>
+                <input className={`mb-2 w-full rounded-xl border px-3 py-2 outline-none ${inputClass}`} value={profileDisplayName} onChange={(event) => setProfileDisplayName(event.target.value)} placeholder="Display name" />
+                <input className={`mb-3 w-full rounded-xl border px-3 py-2 outline-none ${inputClass}`} value={profileUsername} onChange={(event) => setProfileUsername(event.target.value.toLowerCase())} placeholder="Username" />
+                <button onClick={() => void saveProfile()} className={`mb-3 w-full rounded-xl py-2 font-bold ${isDark ? "bg-violet-400 text-slate-950" : "bg-slate-950 text-white"}`}>Save profile</button>
+                <p className={`mb-2 text-xs font-bold uppercase ${muted}`}>Theme</p>
+                <div className="mb-3 grid grid-cols-3 gap-2">
+                  <ThemeButton label="Auto" value="auto" selected={themeMode} onClick={setThemeMode} isDark={isDark} />
+                  <ThemeButton label="Light" value="light" selected={themeMode} onClick={setThemeMode} isDark={isDark} />
+                  <ThemeButton label="Dark" value="dark" selected={themeMode} onClick={setThemeMode} isDark={isDark} />
+                </div>
+                <button onClick={() => void enableNotifications()} className={`mb-2 w-full rounded-xl px-3 py-3 text-left font-semibold ${isDark ? "bg-white/10" : "bg-slate-100"}`}>
+                  {notificationsOn ? "Notifications enabled" : "Enable notifications"}
+                </button>
+                <button onClick={() => void signOut()} className="w-full rounded-xl bg-red-500/15 px-3 py-3 text-left font-semibold text-red-500">Logout</button>
+              </div>
+            )}
+          </header>
 
-            {error && (
-              <p
-                className={`mt-4 rounded-2xl p-3 text-sm ${
-                  isDark ? "bg-red-500/15 text-red-200" : "bg-red-100 text-red-700"
-                }`}
-              >
-                {error}
-              </p>
+          <div className="grid grid-cols-2 gap-2 p-3">
+            <button onClick={() => setSidebarView("chats")} className={`rounded-xl py-2 text-sm font-bold ${sidebarView === "chats" ? isDark ? "bg-violet-400 text-slate-950" : "bg-slate-950 text-white" : isDark ? "bg-white/10" : "bg-slate-100"}`}>Chats</button>
+            <button onClick={() => setSidebarView("friends")} className={`relative rounded-xl py-2 text-sm font-bold ${sidebarView === "friends" ? isDark ? "bg-violet-400 text-slate-950" : "bg-slate-950 text-white" : isDark ? "bg-white/10" : "bg-slate-100"}`}>
+              Friends
+              {requests.length > 0 && <span className="ml-2 rounded-full bg-red-500 px-2 py-0.5 text-xs text-white">{requests.length}</span>}
+            </button>
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
+            {sidebarView === "chats" ? (
+              chats.length > 0 ? chats.map((chat) => (
+                <button
+                  key={chat.conversation_id}
+                  onClick={() => openChat(chat)}
+                  className={`mb-2 flex w-full items-center gap-3 rounded-2xl p-3 text-left transition ${
+                    selectedChat?.conversation_id === chat.conversation_id
+                      ? isDark ? "bg-white/15" : "bg-sky-100"
+                      : isDark ? "hover:bg-white/10" : "hover:bg-white"
+                  }`}
+                >
+                  <Avatar name={chat.display_name} isDark={isDark} />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-bold">{chat.display_name}</p>
+                    <p className={`truncate text-xs ${muted}`}>{chat.last_message ?? `@${chat.username}`}</p>
+                  </div>
+                  {chat.last_message_at && <span className={`text-[10px] ${muted}`}>{new Date(chat.last_message_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>}
+                </button>
+              )) : (
+                <div className={`mt-12 text-center text-sm ${muted}`}>
+                  <p className="mb-2 text-3xl">💬</p>
+                  <p>No chats yet.</p>
+                  <button onClick={() => setSidebarView("friends")} className="mt-3 font-bold text-sky-500">Add a friend</button>
+                </div>
+              )
+            ) : (
+              <>
+                <div className="mb-4 flex gap-2">
+                  <input
+                    className={`min-w-0 flex-1 rounded-xl border px-3 py-2 outline-none ${inputClass}`}
+                    placeholder="Search username"
+                    value={friendSearch}
+                    onChange={(event) => setFriendSearch(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") void searchFriends();
+                    }}
+                  />
+                  <button onClick={() => void searchFriends()} className={`rounded-xl px-3 font-bold ${isDark ? "bg-violet-400 text-slate-950" : "bg-slate-950 text-white"}`}>Find</button>
+                </div>
+
+                {requests.length > 0 && (
+                  <section className="mb-5">
+                    <p className={`mb-2 text-xs font-bold uppercase ${muted}`}>Requests</p>
+                    {requests.map((request) => (
+                      <div key={request.request_id} className={`mb-2 rounded-2xl p-3 ${isDark ? "bg-white/10" : "bg-white"}`}>
+                        <div className="mb-3 flex items-center gap-3">
+                          <Avatar name={request.display_name} isDark={isDark} size="sm" />
+                          <div className="min-w-0">
+                            <p className="truncate font-bold">{request.display_name}</p>
+                            <p className={`text-xs ${muted}`}>@{request.username}</p>
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <button onClick={() => void respondToRequest(request.request_id, true)} className="rounded-xl bg-emerald-500 py-2 text-sm font-bold text-white">Accept</button>
+                          <button onClick={() => void respondToRequest(request.request_id, false)} className={`rounded-xl py-2 text-sm font-bold ${isDark ? "bg-white/10" : "bg-slate-100"}`}>Reject</button>
+                        </div>
+                      </div>
+                    ))}
+                  </section>
+                )}
+
+                {searching && <p className={`text-sm ${muted}`}>Searching...</p>}
+                {searchResults.map((result) => (
+                  <div key={result.id} className={`mb-2 flex items-center gap-3 rounded-2xl p-3 ${isDark ? "bg-white/10" : "bg-white"}`}>
+                    <Avatar name={result.display_name} isDark={isDark} size="sm" />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-bold">{result.display_name}</p>
+                      <p className={`truncate text-xs ${muted}`}>@{result.username}</p>
+                    </div>
+                    <button
+                      disabled={result.relationship !== "none"}
+                      onClick={() => void sendFriendRequest(result.username)}
+                      className={`rounded-xl px-3 py-2 text-xs font-bold disabled:opacity-50 ${
+                        isDark ? "bg-violet-400 text-slate-950" : "bg-slate-950 text-white"
+                      }`}
+                    >
+                      {result.relationship === "friends" ? "Friends" : result.relationship === "sent" ? "Sent" : result.relationship === "received" ? "Pending" : "Add"}
+                    </button>
+                  </div>
+                ))}
+              </>
             )}
           </div>
-        ) : (
-          <div
-            className={`flex h-[100dvh] w-full max-w-4xl flex-col overflow-hidden border-0 backdrop-blur-xl transition md:h-[94vh] md:rounded-3xl md:border ${glassPanel}`}
-          >
-            <div
-              className={`mobile-safe-top relative flex shrink-0 items-center justify-between gap-3 border-b px-3 pb-3 pt-3 md:flex-wrap md:p-4 ${
-                isDark ? "border-white/10" : "border-white/70"
-              }`}
-            >
-              <div className="flex min-w-0 items-center gap-2 md:gap-3">
-                <div className="text-2xl md:text-3xl">{isDark ? "🌙" : "☀️"}</div>
+        </aside>
+
+        <section className={`${mobileChatOpen ? "flex" : "hidden md:flex"} min-h-0 flex-col`}>
+          {selectedChat ? (
+            <>
+              <header className={`mobile-safe-top flex items-center gap-3 border-b p-3 md:p-4 ${isDark ? "border-white/10" : "border-slate-200"}`}>
+                <button onClick={() => setMobileChatOpen(false)} className={`h-10 w-10 rounded-full text-xl md:hidden ${isDark ? "bg-white/10" : "bg-slate-100"}`} aria-label="Back to chats">‹</button>
+                <Avatar name={selectedChat.display_name} isDark={isDark} />
                 <div className="min-w-0">
-                  <h1 className="truncate text-lg font-black tracking-tight md:text-2xl">
-                    Private Chat
-                  </h1>
-                  <p
-                    className={`max-w-[58vw] truncate text-xs md:max-w-none md:text-sm ${
-                      isDark ? "text-white/55" : "text-slate-500"
-                    }`}
-                  >
-                    {session.user.email}
-                  </p>
+                  <h2 className="truncate font-black">{selectedChat.display_name}</h2>
+                  <p className={`truncate text-xs ${muted}`}>@{selectedChat.username}</p>
                 </div>
-              </div>
+              </header>
 
-              <button
-                type="button"
-                onClick={() => {
-                  setSettingsOpen((open) => !open);
-                  setMediaOpen(false);
-                  setEmojiOpen(false);
-                }}
-                aria-label="Open chat settings"
-                aria-expanded={settingsOpen}
-                className={`flex h-10 w-10 items-center justify-center rounded-full text-xl transition ${
-                  isDark
-                    ? "bg-white/10 text-white hover:bg-white/20 active:bg-white/20"
-                    : "bg-white/75 text-slate-800 hover:bg-white active:bg-white"
-                }`}
-              >
-                ⚙
-              </button>
-
-              {settingsOpen && (
-                <div
-                  className={`absolute right-3 top-[calc(100%+0.5rem)] z-40 w-64 rounded-2xl border p-3 shadow-2xl backdrop-blur-xl ${
-                    isDark
-                      ? "border-white/10 bg-slate-950/95 text-white"
-                      : "border-slate-200 bg-white/95 text-slate-900"
-                  }`}
-                >
-                  <p className="mb-2 px-1 text-xs font-bold uppercase opacity-55">
-                    Theme
-                  </p>
-                  <div className="mb-3 grid grid-cols-3 gap-2">
-                    <ThemeButton
-                      label="Auto"
-                      value="auto"
-                      selected={themeMode}
-                      onClick={(value) => {
-                        setThemeMode(value);
-                        setSettingsOpen(false);
-                      }}
-                      isDark={isDark}
-                    />
-                    <ThemeButton
-                      label="Light"
-                      value="light"
-                      selected={themeMode}
-                      onClick={(value) => {
-                        setThemeMode(value);
-                        setSettingsOpen(false);
-                      }}
-                      isDark={isDark}
-                    />
-                    <ThemeButton
-                      label="Dark"
-                      value="dark"
-                      selected={themeMode}
-                      onClick={(value) => {
-                        setThemeMode(value);
-                        setSettingsOpen(false);
-                      }}
-                      isDark={isDark}
-                    />
+              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3 md:p-4" onClick={() => { setMediaOpen(false); setEmojiOpen(false); }}>
+                {messages.length === 0 && (
+                  <div className={`mx-auto mt-20 max-w-sm text-center ${muted}`}>
+                    <p className="mb-3 text-4xl">👋</p>
+                    <p>This chat is empty. Say hello to {selectedChat.display_name}.</p>
                   </div>
-
-                  <button
-                    onClick={enableNotifications}
-                    className={`mb-2 w-full rounded-xl px-3 py-3 text-left text-sm font-semibold transition ${
-                      isDark
-                        ? "bg-white/10 active:bg-white/20"
-                        : "bg-slate-100 active:bg-slate-200"
-                    }`}
-                  >
-                    {notificationsOn ? "Notifications enabled" : "Enable notifications"}
-                  </button>
-
-                  <button
-                    onClick={signOut}
-                    className={`w-full rounded-xl px-3 py-3 text-left text-sm font-semibold transition ${
-                      isDark
-                        ? "bg-red-400/20 text-red-100 active:bg-red-400/30"
-                        : "bg-red-100 text-red-700 active:bg-red-200"
-                    }`}
-                  >
-                    Logout
-                  </button>
-                </div>
-              )}
-            </div>
-
-            <div
-              className="flex-1 overflow-y-auto overscroll-contain px-3 py-3 md:p-4"
-              onClick={() => {
-                setSettingsOpen(false);
-                setMediaOpen(false);
-                setEmojiOpen(false);
-              }}
-            >
-              {messages.length === 0 && (
-                <div
-                  className={`mx-auto mt-20 max-w-sm rounded-3xl p-6 text-center ${
-                    isDark ? "bg-white/10 text-white/60" : "bg-white/60 text-slate-500"
-                  }`}
-                >
-                  <div className="mb-3 text-4xl">{isDark ? "✨" : "☁️"}</div>
-                  <p>No messages yet. Send the first one.</p>
-                </div>
-              )}
-
-              {messages.map((message) => {
-                const bot = Boolean(message.is_bot);
-                const mine = message.sender_id === session.user.id;
-
-                return (
-                  <div
-                    key={message.id}
-                    className={`mb-3 flex md:mb-4 ${
-                      mine && !bot ? "justify-end" : "justify-start"
-                    }`}
-                  >
-                    <div
-                      className={`max-w-[86%] rounded-3xl px-4 py-3 shadow-sm md:max-w-[78%] ${
+                )}
+                {messages.map((message) => {
+                  const bot = message.is_bot;
+                  const mine = message.sender_id === session.user.id;
+                  return (
+                    <div key={message.id} className={`mb-3 flex ${mine && !bot ? "justify-end" : "justify-start"}`}>
+                      <div className={`max-w-[86%] rounded-3xl px-4 py-3 shadow-sm md:max-w-[72%] ${
                         bot
-                          ? isDark
-                            ? "rounded-tl-md border border-amber-300/40 bg-amber-300/20 text-amber-50 shadow-amber-950/20"
-                            : "rounded-tl-md border border-amber-300 bg-amber-100/95 text-amber-950 shadow-amber-200/50"
+                          ? isDark ? "rounded-tl-md border border-amber-300/40 bg-amber-300/20 text-amber-50" : "rounded-tl-md border border-amber-300 bg-amber-100 text-amber-950"
                           : mine
-                          ? isDark
-                            ? "bg-violet-400 text-slate-950"
-                            : "bg-sky-500 text-white"
-                          : isDark
-                            ? "border border-white/10 bg-white/10 text-white"
-                            : "border border-white/80 bg-white/75 text-slate-900"
-                      }`}
-                    >
-                      {bot && (
-                        <p
-                          className={`mb-1 text-xs font-black uppercase tracking-wide ${
-                            isDark ? "text-amber-300" : "text-amber-700"
-                          }`}
-                        >
-                          {message.sender_name ?? "Swiggy"}
-                        </p>
-                      )}
-
-                      <MessageContent message={message} />
-
-                      <p
-                        className={`mt-2 text-xs ${
-                          bot
-                            ? isDark
-                              ? "text-amber-100/50"
-                              : "text-amber-800/55"
-                            : mine
-                            ? isDark
-                              ? "text-slate-800/60"
-                              : "text-white/70"
-                            : isDark
-                              ? "text-white/45"
-                              : "text-slate-500"
-                        }`}
-                      >
-                        {new Date(message.created_at).toLocaleTimeString([], {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
-                      </p>
+                            ? isDark ? "bg-violet-400 text-slate-950" : "bg-sky-500 text-white"
+                            : isDark ? "border border-white/10 bg-white/10" : "border border-slate-200 bg-white"
+                      }`}>
+                        {bot && <p className={`mb-1 text-xs font-black uppercase ${isDark ? "text-amber-300" : "text-amber-700"}`}>{message.sender_name ?? "Swiggy"}</p>}
+                        <MessageContent message={message} />
+                        <p className="mt-2 text-xs opacity-50">{new Date(message.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</p>
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
-
-              <div ref={bottomRef} />
-            </div>
-
-            <div
-              className={`mobile-safe-bottom shrink-0 border-t px-3 pb-3 pt-3 md:p-4 ${
-                isDark ? "border-white/10" : "border-white/70"
-              }`}
-            >
-              <div className="flex items-end gap-2 md:gap-3">
-                <div className="relative">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setMediaOpen((open) => !open);
-                      setEmojiOpen(false);
-                      setSettingsOpen(false);
-                    }}
-                    disabled={uploading || isRecording}
-                    aria-label="Open media options"
-                    aria-expanded={mediaOpen}
-                    className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-2xl font-light transition disabled:opacity-50 ${
-                      isDark
-                        ? "bg-white/10 text-white hover:bg-white/20 active:bg-white/20"
-                        : "bg-white/80 text-slate-800 hover:bg-white active:bg-white"
-                    }`}
-                  >
-                    +
-                  </button>
-
-                  {mediaOpen && (
-                    <div
-                      className={`absolute bottom-[calc(100%+0.75rem)] left-0 z-40 w-64 rounded-2xl border p-2 shadow-2xl backdrop-blur-xl ${
-                        isDark
-                          ? "border-white/10 bg-slate-950/95 text-white"
-                          : "border-slate-200 bg-white/95 text-slate-900"
-                      }`}
-                    >
-                      <button
-                        onClick={() => {
-                          setMediaOpen(false);
-                          imageInputRef.current?.click();
-                        }}
-                        className={`w-full rounded-xl px-3 py-3 text-left text-sm font-semibold ${
-                          isDark
-                            ? "hover:bg-white/10 active:bg-white/10"
-                            : "hover:bg-slate-100 active:bg-slate-100"
-                        }`}
-                      >
-                        📷 Photo
-                      </button>
-                      <button
-                        onClick={() => {
-                          setMediaOpen(false);
-                          videoInputRef.current?.click();
-                        }}
-                        className={`w-full rounded-xl px-3 py-3 text-left text-sm font-semibold ${
-                          isDark
-                            ? "hover:bg-white/10 active:bg-white/10"
-                            : "hover:bg-slate-100 active:bg-slate-100"
-                        }`}
-                      >
-                        🎥 Video
-                      </button>
-                      <button
-                        onClick={startRecording}
-                        className={`w-full rounded-xl px-3 py-3 text-left text-sm font-semibold ${
-                          isDark
-                            ? "hover:bg-white/10 active:bg-white/10"
-                            : "hover:bg-slate-100 active:bg-slate-100"
-                        }`}
-                      >
-                        🎙 Voice note
-                      </button>
-
-                      <button
-                        onClick={() => setEmojiOpen((open) => !open)}
-                        aria-expanded={emojiOpen}
-                        className={`w-full rounded-xl px-3 py-3 text-left text-sm font-semibold ${
-                          isDark
-                            ? "hover:bg-white/10 active:bg-white/10"
-                            : "hover:bg-slate-100 active:bg-slate-100"
-                        }`}
-                      >
-                        😊 Emojis
-                      </button>
-
-                      {emojiOpen && (
-                        <div
-                          className={`mt-1 grid grid-cols-6 gap-1 border-t pt-2 ${
-                            isDark ? "border-white/10" : "border-slate-200"
-                          }`}
-                        >
-                          {CHAT_EMOJIS.map((emoji) => (
-                            <button
-                              key={emoji}
-                              type="button"
-                              onClick={() => {
-                                setText((current) => `${current}${emoji}`);
-                                setEmojiOpen(false);
-                                setMediaOpen(false);
-                              }}
-                              className={`flex h-9 w-9 items-center justify-center rounded-lg text-xl transition ${
-                                isDark
-                                  ? "hover:bg-white/15 active:bg-white/20"
-                                  : "hover:bg-slate-100 active:bg-slate-200"
-                              }`}
-                              aria-label={`Insert ${emoji}`}
-                            >
-                              {emoji}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                {isRecording && (
-                  <button
-                    onClick={stopRecording}
-                    className="h-12 shrink-0 rounded-full bg-red-500 px-4 text-sm font-bold text-white"
-                  >
-                    Stop
-                  </button>
-                )}
-
-                {uploading && (
-                  <span
-                    className={`hidden text-sm sm:inline ${
-                      isDark ? "text-white/60" : "text-slate-500"
-                    }`}
-                  >
-                    Uploading...
-                  </span>
-                )}
-
-                <input
-                  className={`min-w-0 flex-1 rounded-2xl border px-4 py-3 outline-none transition md:p-4 ${inputClass}`}
-                  placeholder="Type a message..."
-                  value={text}
-                  onChange={(e) => setText(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") sendMessage();
-                  }}
-                />
-
-                <button
-                  onClick={sendMessage}
-                  className={`h-12 shrink-0 rounded-2xl px-4 font-bold transition md:h-14 md:px-6 ${
-                    isDark
-                      ? "bg-violet-400 text-slate-950 hover:bg-violet-300"
-                      : "bg-slate-950 text-white hover:bg-slate-800"
-                  }`}
-                >
-                  Send
-                </button>
+                  );
+                })}
+                <div ref={bottomRef} />
               </div>
 
-              {error && (
-                <p
-                  className={`mt-3 rounded-2xl p-3 text-sm ${
-                    isDark ? "bg-red-500/15 text-red-200" : "bg-red-100 text-red-700"
-                  }`}
-                >
-                  {error}
-                </p>
-              )}
+              <footer className={`mobile-safe-bottom relative border-t p-3 md:p-4 ${isDark ? "border-white/10" : "border-slate-200"}`}>
+                <div className="flex items-end gap-2">
+                  <div className="relative">
+                    <button
+                      disabled={uploading || isRecording}
+                      onClick={() => { setMediaOpen((current) => !current); setEmojiOpen(false); }}
+                      className={`flex h-12 w-12 items-center justify-center rounded-full text-2xl disabled:opacity-50 ${isDark ? "bg-white/10" : "bg-white"}`}
+                      aria-label="Open media menu"
+                    >
+                      +
+                    </button>
+                    {mediaOpen && (
+                      <div className={`absolute bottom-[calc(100%+0.75rem)] left-0 z-40 w-64 rounded-2xl border p-2 shadow-2xl ${panel}`}>
+                        <button onClick={() => { setMediaOpen(false); imageInputRef.current?.click(); }} className={`w-full rounded-xl px-3 py-3 text-left text-sm font-semibold ${isDark ? "hover:bg-white/10" : "hover:bg-slate-100"}`}>📷 Photo</button>
+                        <button onClick={() => { setMediaOpen(false); videoInputRef.current?.click(); }} className={`w-full rounded-xl px-3 py-3 text-left text-sm font-semibold ${isDark ? "hover:bg-white/10" : "hover:bg-slate-100"}`}>🎥 Video</button>
+                        <button onClick={() => void startRecording()} className={`w-full rounded-xl px-3 py-3 text-left text-sm font-semibold ${isDark ? "hover:bg-white/10" : "hover:bg-slate-100"}`}>🎙 Voice note</button>
+                        <button onClick={() => setEmojiOpen((current) => !current)} className={`w-full rounded-xl px-3 py-3 text-left text-sm font-semibold ${isDark ? "hover:bg-white/10" : "hover:bg-slate-100"}`}>😊 Emojis</button>
+                        {emojiOpen && (
+                          <div className={`mt-1 grid grid-cols-6 gap-1 border-t pt-2 ${isDark ? "border-white/10" : "border-slate-200"}`}>
+                            {CHAT_EMOJIS.map((emoji) => (
+                              <button key={emoji} onClick={() => { setText((current) => `${current}${emoji}`); setMediaOpen(false); setEmojiOpen(false); }} className={`h-9 w-9 rounded-lg text-xl ${isDark ? "hover:bg-white/15" : "hover:bg-slate-100"}`}>{emoji}</button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  {isRecording && <button onClick={stopRecording} className="h-12 rounded-full bg-red-500 px-4 text-sm font-bold text-white">Stop</button>}
+                  <input
+                    className={`min-w-0 flex-1 rounded-2xl border px-4 py-3 outline-none md:h-14 ${inputClass}`}
+                    placeholder={`Message ${selectedChat.display_name}`}
+                    value={text}
+                    onChange={(event) => setText(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") void sendMessage();
+                    }}
+                  />
+                  <button onClick={() => void sendMessage()} className={`h-12 rounded-2xl px-4 font-bold md:h-14 md:px-6 ${isDark ? "bg-violet-400 text-slate-950" : "bg-slate-950 text-white"}`}>Send</button>
+                </div>
+                {uploading && <p className={`mt-2 text-xs ${muted}`}>Uploading...</p>}
+                {error && <p className="mt-2 rounded-xl bg-red-500/15 p-2 text-sm text-red-500">{error}</p>}
+              </footer>
+            </>
+          ) : (
+            <div className={`flex h-full items-center justify-center text-center ${muted}`}>
+              <div>
+                <p className="mb-3 text-5xl">🐮</p>
+                <h2 className="text-xl font-black">Welcome to Haaahooo</h2>
+                <p className="mt-2">Choose a chat or add a friend.</p>
+              </div>
             </div>
-          </div>
-        )}
+          )}
+        </section>
       </div>
     </main>
   );

@@ -6,57 +6,35 @@ export const runtime = "nodejs";
 type StoredPushSubscription = {
   endpoint?: string;
   expirationTime?: number | null;
-  keys?: {
-    p256dh?: string;
-    auth?: string;
-  };
+  keys?: { p256dh?: string; auth?: string };
 };
 
-async function getUserFromRequest(request: NextRequest) {
-  const authHeader = request.headers.get("authorization") ?? "";
-  const token = authHeader.replace("Bearer ", "").trim();
-
+export async function POST(request: NextRequest) {
+  const token = (request.headers.get("authorization") ?? "")
+    .replace("Bearer ", "")
+    .trim();
   if (!token) {
-    return null;
+    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
 
   const {
     data: { user },
-    error,
   } = await supabaseAuthClient.auth.getUser(token);
-
-  if (error || !user) {
-    return null;
-  }
-
-  return user;
-}
-
-export async function POST(request: NextRequest) {
-  const user = await getUserFromRequest(request);
-
   if (!user) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
 
-  const body = await request.json();
-  const subscription = body.subscription as StoredPushSubscription;
+  const body = (await request.json()) as {
+    subscription?: StoredPushSubscription;
+  };
+  const subscription = body.subscription;
 
-  if (!subscription?.endpoint || !subscription.keys?.p256dh || !subscription.keys?.auth) {
-    return NextResponse.json({ error: "Invalid push subscription." }, { status: 400 });
-  }
-
-  const { data: allowedUser } = await supabaseAdmin
-    .from("allowed_users")
-    .select("user_id")
-    .eq("user_id", user.id)
-    .maybeSingle();
-
-  if (!allowedUser) {
-    return NextResponse.json(
-      { error: "This user is not allowed to use this chat." },
-      { status: 403 }
-    );
+  if (
+    !subscription?.endpoint ||
+    !subscription.keys?.p256dh ||
+    !subscription.keys.auth
+  ) {
+    return NextResponse.json({ error: "Invalid subscription." }, { status: 400 });
   }
 
   const { error } = await supabaseAdmin.from("push_subscriptions").upsert(
@@ -64,11 +42,8 @@ export async function POST(request: NextRequest) {
       user_id: user.id,
       endpoint: subscription.endpoint,
       subscription_json: subscription,
-      updated_at: new Date().toISOString(),
     },
-    {
-      onConflict: "endpoint",
-    }
+    { onConflict: "endpoint" },
   );
 
   if (error) {

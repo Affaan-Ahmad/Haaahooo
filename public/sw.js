@@ -1,6 +1,6 @@
 self.addEventListener("push", function (event) {
   let data = {
-    title: "Private Chat",
+    title: "Haaahooo",
     body: "New message",
     url: "/",
   };
@@ -14,40 +14,36 @@ self.addEventListener("push", function (event) {
   }
 
   event.waitUntil(
-    self.registration.showNotification(data.title || "Private Chat", {
+    self.registration.showNotification(data.title || "Haaahooo", {
       body: data.body || "New message",
       icon: "/icon-192.png",
       badge: "/icon-192.png",
-      tag: "private-chat-message",
-      data: {
-        url: data.url || "/",
-      },
-    })
+      tag: "haaahooo-message",
+      data: { url: data.url || "/" },
+    }),
   );
 });
 
 self.addEventListener("notificationclick", function (event) {
   event.notification.close();
-
   const targetUrl = event.notification.data?.url || "/";
 
   event.waitUntil(
     clients
-      .matchAll({
-        type: "window",
-        includeUncontrolled: true,
-      })
-      .then(function (clientList) {
+      .matchAll({ type: "window", includeUncontrolled: true })
+      .then(async function (clientList) {
         for (const client of clientList) {
+          if ("navigate" in client) {
+            await client.navigate(targetUrl);
+          }
           if ("focus" in client) {
-            client.focus();
-            return;
+            return client.focus();
           }
         }
 
         if (clients.openWindow) {
           return clients.openWindow(targetUrl);
         }
-      })
+      }),
   );
 });
