@@ -946,23 +946,23 @@ export default function Home() {
       <input ref={imageInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
       <input ref={videoInputRef} type="file" accept="video/*" className="hidden" onChange={handleFileChange} />
 
-      <div className={`relative z-10 mx-auto grid h-[100dvh] w-full max-w-6xl overflow-hidden border backdrop-blur-xl md:h-[calc(100dvh-2rem)] md:grid-cols-[320px_1fr] md:rounded-3xl ${panel}`}>
+      <div className={`relative z-10 mx-auto grid h-[100dvh] w-full max-w-6xl grid-cols-[minmax(0,1fr)] overflow-hidden border backdrop-blur-xl md:h-[calc(100dvh-2rem)] md:grid-cols-[320px_minmax(0,1fr)] md:rounded-3xl ${panel}`}>
         <aside
-          className={`${mobileChatOpen ? "hidden md:flex" : "flex"} min-h-0 flex-col border-r ${
+          className={`${mobileChatOpen ? "hidden md:flex" : "flex"} min-h-0 min-w-0 w-full max-w-full flex-col overflow-hidden border-r ${
             isDark ? "border-white/10" : "border-slate-200"
           }`}
         >
           <header className={`mobile-safe-top relative z-50 flex items-center justify-between border-b px-3 py-2.5 md:p-4 ${isDark ? "border-white/10" : "border-slate-200"}`}>
-            <div className="flex min-w-0 items-center gap-3">
+            <div className="flex min-w-0 flex-1 items-center gap-3 overflow-hidden">
               <Avatar name={profile?.display_name ?? "H"} isDark={isDark} size="lg" />
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1 overflow-hidden">
                 <h1 className="truncate text-base font-black md:text-lg">{profile?.display_name ?? "Haaahooo"}</h1>
                 <p className={`truncate text-xs ${muted}`}>@{profile?.username}</p>
               </div>
             </div>
             <button
               onClick={() => setSettingsOpen((current) => !current)}
-              className={`h-10 w-10 rounded-full text-xl ${isDark ? "bg-white/10" : "bg-slate-100"}`}
+              className={`ml-2 flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-xl ${isDark ? "bg-white/10" : "bg-slate-100"}`}
               aria-label="Open settings"
             >
               ⚙
@@ -999,21 +999,21 @@ export default function Home() {
             )}
           </header>
 
-          <div className="grid grid-cols-2 gap-2 px-3 py-2 md:p-3">
-            <button onClick={() => setSidebarView("chats")} className={`rounded-xl py-2 text-sm font-bold ${sidebarView === "chats" ? isDark ? "bg-violet-400 text-slate-950" : "bg-slate-950 text-white" : isDark ? "bg-white/10" : "bg-slate-100"}`}>Chats</button>
-            <button onClick={() => setSidebarView("friends")} className={`relative rounded-xl py-2 text-sm font-bold ${sidebarView === "friends" ? isDark ? "bg-violet-400 text-slate-950" : "bg-slate-950 text-white" : isDark ? "bg-white/10" : "bg-slate-100"}`}>
+          <nav className="grid w-full min-w-0 grid-cols-2 gap-2 px-3 py-2 md:p-3" aria-label="Messenger sections">
+            <button onClick={() => setSidebarView("chats")} className={`min-w-0 rounded-xl px-2 py-2.5 text-center text-sm font-bold ${sidebarView === "chats" ? isDark ? "bg-violet-400 text-slate-950" : "bg-slate-950 text-white" : isDark ? "bg-white/10" : "bg-slate-100"}`}>Chats</button>
+            <button onClick={() => setSidebarView("friends")} className={`relative min-w-0 rounded-xl px-2 py-2.5 text-center text-sm font-bold ${sidebarView === "friends" ? isDark ? "bg-violet-400 text-slate-950" : "bg-slate-950 text-white" : isDark ? "bg-white/10" : "bg-slate-100"}`}>
               Friends
               {requests.length > 0 && <span className="ml-2 rounded-full bg-red-500 px-2 py-0.5 text-xs text-white">{requests.length}</span>}
             </button>
-          </div>
+          </nav>
 
-          <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
+          <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-3 pb-3">
             {sidebarView === "chats" ? (
               chats.length > 0 ? chats.map((chat) => (
                 <button
                   key={chat.conversation_id}
                   onClick={() => openChat(chat)}
-                  className={`mb-2 flex w-full items-center gap-3 rounded-2xl p-3 text-left transition ${
+                  className={`mb-2 flex w-full min-w-0 max-w-full items-center gap-3 overflow-hidden rounded-2xl p-3 text-left transition ${
                     selectedChat?.conversation_id === chat.conversation_id
                       ? isDark ? "bg-white/15" : "bg-sky-100"
                       : isDark ? "hover:bg-white/10" : "hover:bg-white"
@@ -1024,7 +1024,7 @@ export default function Home() {
                     <p className="truncate font-bold">{chat.display_name}</p>
                     <p className={`truncate text-xs ${muted}`}>{chat.last_message ?? `@${chat.username}`}</p>
                   </div>
-                  {chat.last_message_at && <span className={`text-[10px] ${muted}`}>{new Date(chat.last_message_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>}
+                  {chat.last_message_at && <span className={`hidden shrink-0 text-[10px] min-[360px]:block ${muted}`}>{new Date(chat.last_message_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>}
                 </button>
               )) : (
                 <div className={`mt-12 text-center text-sm ${muted}`}>
@@ -1093,7 +1093,7 @@ export default function Home() {
           </div>
         </aside>
 
-        <section className={`${mobileChatOpen ? "flex" : "hidden md:flex"} min-h-0 flex-col`}>
+        <section className={`${mobileChatOpen ? "flex" : "hidden md:flex"} min-h-0 min-w-0 w-full max-w-full flex-col overflow-hidden`}>
           {selectedChat ? (
             <>
               <header className={`mobile-safe-top flex min-h-14 items-center gap-2 border-b px-2.5 py-2 md:gap-3 md:p-4 ${isDark ? "border-white/10" : "border-slate-200"}`}>
