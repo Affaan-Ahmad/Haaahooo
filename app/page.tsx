@@ -43,6 +43,12 @@ type SearchResult = Profile & {
   relationship: "none" | "friends" | "sent" | "received";
 };
 
+type SpotifyConnection = {
+  connected: boolean;
+  displayName: string | null;
+  product: string | null;
+};
+
 type Message = {
   id: string;
   conversation_id: string;
@@ -309,6 +315,10 @@ export default function Home() {
   const [uploading, setUploading] = useState(false);
   const [notificationsOn, setNotificationsOn] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [spotifyConnection, setSpotifyConnection] =
+    useState<SpotifyConnection | null>(null);
+  const [spotifyBusy, setSpotifyBusy] = useState(false);
+  const [spotifyStatus, setSpotifyStatus] = useState("");
   const [mediaOpen, setMediaOpen] = useState(false);
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
@@ -358,6 +368,37 @@ export default function Home() {
     });
     return () => data.subscription.unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (!session) {
+      setSpotifyConnection(null);
+      return;
+    }
+
+    void loadSpotifyConnection();
+
+    const spotifyResult = new URLSearchParams(window.location.search).get(
+      "spotify",
+    );
+    if (!spotifyResult) return;
+
+    setSettingsOpen(true);
+    setSpotifyStatus(
+      spotifyResult === "connected"
+        ? "Spotify connected."
+        : spotifyResult === "denied"
+          ? "Spotify connection was cancelled."
+          : "Spotify could not be connected. Check the Vercel logs.",
+    );
+
+    const cleanUrl = new URL(window.location.href);
+    cleanUrl.searchParams.delete("spotify");
+    window.history.replaceState(
+      window.history.state,
+      "",
+      `${cleanUrl.pathname}${cleanUrl.search}${cleanUrl.hash}`,
+    );
+  }, [session]);
 
   async function addSignedUrls(rows: Message[]) {
     return Promise.all(
@@ -733,6 +774,98 @@ export default function Home() {
     }
   }
 
+  async function loadSpotifyConnection() {
+    const {
+      data: { session: currentSession },
+    } = await supabase.auth.getSession();
+    if (!currentSession) return;
+
+    const response = await fetch("/api/spotify/connection", {
+      headers: {
+        Authorization: `Bearer ${currentSession.access_token}`,
+      },
+      cache: "no-store",
+    });
+    const result = (await response.json().catch(() => null)) as
+      | (SpotifyConnection & { error?: string })
+      | null;
+
+    if (!response.ok) {
+      setSpotifyStatus(result?.error ?? "Could not check Spotify connection.");
+      return;
+    }
+
+    setSpotifyConnection(result);
+  }
+
+  async function connectSpotify() {
+    setSpotifyBusy(true);
+    setSpotifyStatus("");
+
+    const {
+      data: { session: currentSession },
+    } = await supabase.auth.getSession();
+    if (!currentSession) {
+      setSpotifyBusy(false);
+      setSpotifyStatus("Please log in again.");
+      return;
+    }
+
+    const response = await fetch("/api/spotify/connect", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${currentSession.access_token}`,
+      },
+    });
+    const result = (await response.json().catch(() => null)) as
+      | { url?: string; error?: string }
+      | null;
+
+    if (!response.ok || !result?.url) {
+      setSpotifyBusy(false);
+      setSpotifyStatus(result?.error ?? "Could not start Spotify login.");
+      return;
+    }
+
+    window.location.assign(result.url);
+  }
+
+  async function disconnectSpotify() {
+    setSpotifyBusy(true);
+    setSpotifyStatus("");
+
+    const {
+      data: { session: currentSession },
+    } = await supabase.auth.getSession();
+    if (!currentSession) {
+      setSpotifyBusy(false);
+      return;
+    }
+
+    const response = await fetch("/api/spotify/connection", {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${currentSession.access_token}`,
+      },
+    });
+
+    setSpotifyBusy(false);
+    if (!response.ok) {
+      const result = (await response.json().catch(() => null)) as
+        | { error?: string }
+        | null;
+      setSpotifyStatus(result?.error ?? "Could not disconnect Spotify.");
+      return;
+    }
+
+    setSpotifyConnection({
+      connected: false,
+      displayName: null,
+      product: null,
+    });
+    setSpotifyStatus("Spotify disconnected.");
+  }
+
   async function searchFriends() {
     const query = friendSearch.trim();
     if (!query) {
@@ -1056,7 +1189,7 @@ export default function Home() {
             </button>
 
             {settingsOpen && (
-              <div className={`absolute right-3 top-[calc(100%+0.5rem)] z-[60] w-[calc(100vw-1.5rem)] max-w-72 rounded-2xl border p-3 shadow-2xl ${panel}`}>
+              <div className={`absolute right-3 top-[calc(100%+0.5rem)] z-[60] max-h-[calc(100dvh-6.5rem)] w-[calc(100vw-1.5rem)] max-w-72 overflow-y-auto overscroll-contain rounded-2xl border p-3 shadow-2xl ${panel}`}>
                 <p className={`mb-2 text-xs font-bold uppercase ${muted}`}>Profile</p>
                 <input className={`mb-2 w-full rounded-xl border px-3 py-2 outline-none ${inputClass}`} value={profileDisplayName} onChange={(event) => setProfileDisplayName(event.target.value)} placeholder="Display name" />
                 <input className={`mb-3 w-full rounded-xl border px-3 py-2 outline-none ${inputClass}`} value={profileUsername} onChange={(event) => setProfileUsername(event.target.value.toLowerCase())} placeholder="Username" />
@@ -1081,6 +1214,48 @@ export default function Home() {
                 <button onClick={() => void enableNotifications()} className={`mb-2 w-full rounded-xl px-3 py-3 text-left font-semibold ${isDark ? "bg-white/10" : "bg-slate-100"}`}>
                   {notificationsOn ? "Notifications enabled" : "Enable notifications"}
                 </button>
+                <div className={`mb-2 rounded-xl p-3 ${isDark ? "bg-white/10" : "bg-slate-100"}`}>
+                  <div className="mb-2 flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="font-semibold">Spotify</p>
+                      <p className={`truncate text-xs ${muted}`}>
+                        {spotifyConnection?.connected
+                          ? `${spotifyConnection.displayName ?? "Connected"}${
+                              spotifyConnection.product
+                                ? ` · ${spotifyConnection.product}`
+                                : ""
+                            }`
+                          : "Not connected"}
+                      </p>
+                    </div>
+                    <span className="text-xl" aria-hidden="true">♫</span>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={spotifyBusy}
+                    onClick={() =>
+                      void (spotifyConnection?.connected
+                        ? disconnectSpotify()
+                        : connectSpotify())
+                    }
+                    className={`w-full rounded-lg px-3 py-2 text-sm font-bold disabled:opacity-50 ${
+                      spotifyConnection?.connected
+                        ? isDark
+                          ? "bg-white/10 text-white"
+                          : "bg-white text-slate-950"
+                        : "bg-[#1DB954] text-black"
+                    }`}
+                  >
+                    {spotifyBusy
+                      ? "Please wait..."
+                      : spotifyConnection?.connected
+                        ? "Disconnect Spotify"
+                        : "Connect Spotify"}
+                  </button>
+                  {spotifyStatus && (
+                    <p className={`mt-2 text-xs ${muted}`}>{spotifyStatus}</p>
+                  )}
+                </div>
                 <button onClick={() => void signOut()} className="w-full rounded-xl bg-red-500/15 px-3 py-3 text-left font-semibold text-red-500">Logout</button>
               </div>
             )}
