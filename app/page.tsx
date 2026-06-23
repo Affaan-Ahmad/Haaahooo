@@ -49,6 +49,32 @@ type SpotifyConnection = {
   product: string | null;
 };
 
+type SpotifyTrack = {
+  id: string;
+  uri: string;
+  name: string;
+  artists: string;
+  album: string;
+  imageUrl: string | null;
+  durationMs: number;
+  spotifyUrl: string | null;
+};
+
+type JukeboxState = {
+  conversationId: string;
+  trackId: string | null;
+  trackUri: string | null;
+  trackName: string | null;
+  artistName: string | null;
+  imageUrl: string | null;
+  spotifyUrl: string | null;
+  durationMs: number;
+  positionMs: number;
+  isPlaying: boolean;
+  changedAt: string;
+  changedBy: string;
+};
+
 type Message = {
   id: string;
   conversation_id: string;
@@ -319,6 +345,13 @@ export default function Home() {
     useState<SpotifyConnection | null>(null);
   const [spotifyBusy, setSpotifyBusy] = useState(false);
   const [spotifyStatus, setSpotifyStatus] = useState("");
+  const [jukeboxOpen, setJukeboxOpen] = useState(false);
+  const [jukeboxState, setJukeboxState] = useState<JukeboxState | null>(null);
+  const [jukeboxQuery, setJukeboxQuery] = useState("");
+  const [jukeboxResults, setJukeboxResults] = useState<SpotifyTrack[]>([]);
+  const [jukeboxSearching, setJukeboxSearching] = useState(false);
+  const [jukeboxBusy, setJukeboxBusy] = useState(false);
+  const [jukeboxStatus, setJukeboxStatus] = useState("");
   const [mediaOpen, setMediaOpen] = useState(false);
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
@@ -627,6 +660,35 @@ export default function Home() {
   }, [session, selectedChat?.conversation_id, messageRefreshKey]);
 
   useEffect(() => {
+    if (!session || !selectedChat) {
+      setJukeboxState(null);
+      setJukeboxOpen(false);
+      return;
+    }
+
+    const conversationId = selectedChat.conversation_id;
+    void loadJukebox(conversationId);
+
+    const channel = supabase
+      .channel(`jukebox-${conversationId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "conversation_jukebox",
+          filter: `conversation_id=eq.${conversationId}`,
+        },
+        () => void loadJukebox(conversationId),
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [session, selectedChat?.conversation_id]);
+
+  useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
@@ -864,6 +926,115 @@ export default function Home() {
       product: null,
     });
     setSpotifyStatus("Spotify disconnected.");
+  }
+
+  async function spotifyApiHeaders() {
+    const {
+      data: { session: currentSession },
+    } = await supabase.auth.getSession();
+    return currentSession
+      ? { Authorization: `Bearer ${currentSession.access_token}` }
+      : null;
+  }
+
+  async function loadJukebox(conversationId: string) {
+    const headers = await spotifyApiHeaders();
+    if (!headers) return;
+
+    const response = await fetch(
+      `/api/spotify/jukebox?conversationId=${encodeURIComponent(conversationId)}`,
+      { headers, cache: "no-store" },
+    );
+    const result = (await response.json().catch(() => null)) as
+      | { state?: JukeboxState | null; error?: string }
+      | null;
+
+    if (response.ok) {
+      setJukeboxState(result?.state ?? null);
+    } else {
+      setJukeboxStatus(result?.error ?? "Could not load the jukebox.");
+    }
+  }
+
+  async function searchSpotify() {
+    const query = jukeboxQuery.trim();
+    if (!query) {
+      setJukeboxResults([]);
+      return;
+    }
+
+    const headers = await spotifyApiHeaders();
+    if (!headers) return;
+
+    setJukeboxSearching(true);
+    setJukeboxStatus("");
+    const response = await fetch(
+      `/api/spotify/search?q=${encodeURIComponent(query)}`,
+      { headers, cache: "no-store" },
+    );
+    const result = (await response.json().catch(() => null)) as
+      | { tracks?: SpotifyTrack[]; error?: string }
+      | null;
+    setJukeboxSearching(false);
+
+    if (!response.ok) {
+      setJukeboxStatus(result?.error ?? "Spotify search failed.");
+      return;
+    }
+
+    setJukeboxResults(result?.tracks ?? []);
+  }
+
+  async function controlJukebox(
+    action: "select" | "play" | "pause",
+    track?: SpotifyTrack,
+  ) {
+    if (!selectedChat) return;
+    const headers = await spotifyApiHeaders();
+    if (!headers) return;
+
+    setJukeboxBusy(true);
+    setJukeboxStatus("");
+
+    const response = await fetch("/api/spotify/jukebox", {
+      method: "POST",
+      headers: {
+        ...headers,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        conversationId: selectedChat.conversation_id,
+        action,
+        ...(track ? { track } : {}),
+      }),
+    });
+    const result = (await response.json().catch(() => null)) as
+      | {
+          state?: JukeboxState;
+          error?: string;
+          playback?: { connected: number; total: number };
+        }
+      | null;
+    setJukeboxBusy(false);
+
+    if (!response.ok || !result?.state) {
+      setJukeboxStatus(result?.error ?? "The jukebox command failed.");
+      return;
+    }
+
+    setJukeboxState(result.state);
+    if (track) {
+      setJukeboxResults([]);
+      setJukeboxQuery("");
+    }
+
+    const connected = result.playback?.connected ?? 0;
+    const total = result.playback?.total ?? 0;
+    setJukeboxStatus(
+      connected === total && total > 0
+        ? `Spotify updated for ${connected} listener${connected === 1 ? "" : "s"}.`
+        : `Updated ${connected} of ${total}. Open Spotify on each phone or computer first.`,
+    );
   }
 
   async function searchFriends() {
@@ -1355,7 +1526,7 @@ export default function Home() {
           </div>
         </aside>
 
-        <section className={`${mobileChatOpen ? "flex" : "hidden md:flex"} min-h-0 min-w-0 w-full max-w-full flex-col overflow-hidden`}>
+        <section className={`${mobileChatOpen ? "flex" : "hidden md:flex"} relative min-h-0 min-w-0 w-full max-w-full flex-col overflow-hidden`}>
           {selectedChat ? (
             <>
               <header className={`mobile-safe-top flex min-h-14 items-center gap-2 border-b px-2.5 py-2 md:gap-3 md:p-4 ${isDark ? "border-white/10" : "border-slate-200"}`}>
@@ -1365,6 +1536,19 @@ export default function Home() {
                   <h2 className="truncate font-black">{selectedChat.display_name}</h2>
                   <p className={`hidden truncate text-xs min-[380px]:block ${muted}`}>@{selectedChat.username}</p>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setJukeboxOpen((current) => !current);
+                    setMediaOpen(false);
+                    setEmojiOpen(false);
+                  }}
+                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-lg ${jukeboxOpen ? "bg-[#1DB954] text-black" : isDark ? "bg-white/10" : "bg-slate-100"}`}
+                  aria-label="Open shared jukebox"
+                  title="Shared jukebox"
+                >
+                  ♫
+                </button>
                 <button
                   type="button"
                   onClick={() => {
@@ -1379,6 +1563,109 @@ export default function Home() {
                   ↻
                 </button>
               </header>
+
+              {jukeboxOpen && (
+                <div className={`absolute inset-x-2 top-[calc(env(safe-area-inset-top)+4.25rem)] z-50 max-h-[calc(100dvh-8.5rem)] overflow-y-auto overscroll-contain rounded-2xl border p-3 shadow-2xl md:left-auto md:right-4 md:top-20 md:w-96 ${panel}`}>
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <div>
+                      <p className="font-black">Shared jukebox</p>
+                      <p className={`text-xs ${muted}`}>Controls Spotify for both listeners</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setJukeboxOpen(false)}
+                      className={`flex h-9 w-9 items-center justify-center rounded-full ${isDark ? "bg-white/10" : "bg-slate-100"}`}
+                      aria-label="Close jukebox"
+                    >
+                      ×
+                    </button>
+                  </div>
+
+                  {jukeboxState?.trackName ? (
+                    <div className={`mb-3 flex items-center gap-3 rounded-xl p-3 ${isDark ? "bg-white/10" : "bg-slate-100"}`}>
+                      {jukeboxState.imageUrl ? (
+                        <img
+                          src={jukeboxState.imageUrl}
+                          alt=""
+                          className="h-14 w-14 shrink-0 rounded-lg object-cover"
+                        />
+                      ) : (
+                        <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg bg-[#1DB954] text-2xl text-black">♫</div>
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate font-bold">{jukeboxState.trackName}</p>
+                        <p className={`truncate text-xs ${muted}`}>{jukeboxState.artistName}</p>
+                        <p className={`mt-1 text-[11px] font-semibold ${jukeboxState.isPlaying ? "text-[#1DB954]" : muted}`}>
+                          {jukeboxState.isPlaying ? "Playing" : "Paused"}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        disabled={jukeboxBusy}
+                        onClick={() => void controlJukebox(jukeboxState.isPlaying ? "pause" : "play")}
+                        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#1DB954] font-black text-black disabled:opacity-50"
+                        aria-label={jukeboxState.isPlaying ? "Pause" : "Play"}
+                      >
+                        {jukeboxState.isPlaying ? "Ⅱ" : "▶"}
+                      </button>
+                    </div>
+                  ) : (
+                    <p className={`mb-3 rounded-xl p-3 text-sm ${isDark ? "bg-white/10" : "bg-slate-100"} ${muted}`}>
+                      Search for a song to start the jukebox.
+                    </p>
+                  )}
+
+                  <div className="mb-2 flex gap-2">
+                    <input
+                      value={jukeboxQuery}
+                      onChange={(event) => setJukeboxQuery(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") void searchSpotify();
+                      }}
+                      placeholder="Search Spotify"
+                      className={`min-w-0 flex-1 rounded-xl border px-3 py-2 outline-none ${inputClass}`}
+                    />
+                    <button
+                      type="button"
+                      disabled={jukeboxSearching}
+                      onClick={() => void searchSpotify()}
+                      className="rounded-xl bg-[#1DB954] px-3 text-sm font-bold text-black disabled:opacity-50"
+                    >
+                      {jukeboxSearching ? "..." : "Search"}
+                    </button>
+                  </div>
+
+                  {jukeboxResults.map((track) => (
+                    <button
+                      type="button"
+                      key={track.id}
+                      disabled={jukeboxBusy}
+                      onClick={() => void controlJukebox("select", track)}
+                      className={`mb-1.5 flex w-full min-w-0 items-center gap-3 rounded-xl p-2 text-left disabled:opacity-50 ${isDark ? "hover:bg-white/10" : "hover:bg-slate-100"}`}
+                    >
+                      {track.imageUrl ? (
+                        <img src={track.imageUrl} alt="" className="h-11 w-11 shrink-0 rounded-lg object-cover" />
+                      ) : (
+                        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-[#1DB954] text-black">♫</div>
+                      )}
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-bold">{track.name}</span>
+                        <span className={`block truncate text-xs ${muted}`}>{track.artists}</span>
+                      </span>
+                      <span className="shrink-0 text-[#1DB954]">▶</span>
+                    </button>
+                  ))}
+
+                  {jukeboxStatus && (
+                    <p className={`mt-2 rounded-xl p-2 text-xs ${isDark ? "bg-white/10" : "bg-slate-100"} ${muted}`}>
+                      {jukeboxStatus}
+                    </p>
+                  )}
+                  <p className={`mt-2 text-[11px] ${muted}`}>
+                    Each listener must connect Spotify Premium and keep Spotify open on a device.
+                  </p>
+                </div>
+              )}
 
               <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2.5 py-3 md:p-4" onClick={() => { setMediaOpen(false); setEmojiOpen(false); }}>
                 {messagesLoading && messages.length === 0 && (
