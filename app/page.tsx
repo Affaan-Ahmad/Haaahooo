@@ -104,6 +104,11 @@ type MessageReaction = {
   emoji: string;
 };
 
+type ConversationReadReceipt = {
+  user_id: string;
+  last_read_at: string;
+};
+
 type MessageActionMenu = {
   message: Message;
   x: number;
@@ -167,6 +172,37 @@ function getMessagePreview(message: Message) {
   if (message.message_type === "video") return "Video";
   if (message.message_type === "audio") return "Voice note";
   return "Message";
+}
+
+function formatLastSeen(lastSeenAt: string | null, now: number) {
+  if (!lastSeenAt) return "Offline";
+
+  const lastSeenDate = new Date(lastSeenAt);
+  const elapsed = now - lastSeenDate.getTime();
+  if (elapsed <= 45_000) return "Online";
+
+  const today = new Date(now);
+  const sameDay = lastSeenDate.toDateString() === today.toDateString();
+  if (sameDay) {
+    return `Last seen today at ${lastSeenDate.toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+    })}`;
+  }
+
+  const yesterday = new Date(today);
+  yesterday.setDate(today.getDate() - 1);
+  if (lastSeenDate.toDateString() === yesterday.toDateString()) {
+    return `Last seen yesterday at ${lastSeenDate.toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+    })}`;
+  }
+
+  return `Last seen ${lastSeenDate.toLocaleDateString([], {
+    month: "short",
+    day: "numeric",
+  })}`;
 }
 
 function Avatar({
@@ -371,6 +407,9 @@ export default function Home() {
   >({});
   const [messageActionMenu, setMessageActionMenu] =
     useState<MessageActionMenu | null>(null);
+  const [friendLastReadAt, setFriendLastReadAt] = useState<string | null>(null);
+  const [friendLastSeenAt, setFriendLastSeenAt] = useState<string | null>(null);
+  const [presenceClock, setPresenceClock] = useState(Date.now());
   const [text, setText] = useState("");
   const [error, setError] = useState("");
   const [uploading, setUploading] = useState(false);
@@ -420,6 +459,15 @@ export default function Home() {
   const inputClass = isDark
     ? "border-white/10 bg-white/10 text-white placeholder:text-white/40 focus:border-violet-300"
     : "border-slate-200 bg-white text-slate-950 placeholder:text-slate-400 focus:border-sky-400";
+  const friendPresenceText = formatLastSeen(friendLastSeenAt, presenceClock);
+  const friendIsOnline = friendPresenceText === "Online";
+  const latestOwnMessageId =
+    [...messages]
+      .reverse()
+      .find(
+        (message) =>
+          !message.is_bot && message.sender_id === session?.user.id,
+      )?.id ?? null;
 
   useEffect(() => {
     const savedTheme = localStorage.getItem(THEME_STORAGE_KEY) as ThemeMode | null;
@@ -443,6 +491,36 @@ export default function Home() {
     });
     return () => data.subscription.unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (!session) return;
+
+    async function touchPresence() {
+      if (document.visibilityState !== "visible") return;
+      await supabase.rpc("touch_my_presence");
+      setPresenceClock(Date.now());
+    }
+
+    void touchPresence();
+    const heartbeat = window.setInterval(() => void touchPresence(), 30_000);
+    const clock = window.setInterval(
+      () => setPresenceClock(Date.now()),
+      15_000,
+    );
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") void touchPresence();
+    };
+
+    window.addEventListener("focus", touchPresence);
+    document.addEventListener("visibilitychange", handleVisibility);
+
+    return () => {
+      window.clearInterval(heartbeat);
+      window.clearInterval(clock);
+      window.removeEventListener("focus", touchPresence);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [session]);
 
   useEffect(() => {
     if (!session) {
@@ -729,6 +807,87 @@ export default function Home() {
       void supabase.removeChannel(reactionChannel);
     };
   }, [session, selectedChat?.conversation_id, messages]);
+
+  useEffect(() => {
+    if (!session || !selectedChat) {
+      setFriendLastReadAt(null);
+      setFriendLastSeenAt(null);
+      return;
+    }
+
+    const conversationId = selectedChat.conversation_id;
+    const friendId = selectedChat.friend_id;
+    void Promise.all([
+      loadReadReceipts(conversationId, friendId),
+      loadFriendPresence(friendId),
+    ]);
+
+    const presencePoll = window.setInterval(
+      () => void loadFriendPresence(friendId),
+      20_000,
+    );
+    const receiptChannel = supabase
+      .channel(`read-receipts-${conversationId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "conversation_reads",
+          filter: `conversation_id=eq.${conversationId}`,
+        },
+        () => void loadReadReceipts(conversationId, selectedChat.friend_id),
+      )
+      .subscribe();
+
+    function refreshVisibleConversation() {
+      if (document.visibilityState !== "visible") return;
+      void loadFriendPresence(friendId);
+      if (
+        mobileChatOpen ||
+        window.matchMedia("(min-width: 768px)").matches
+      ) {
+        void markConversationRead(conversationId);
+      }
+    }
+
+    window.addEventListener("focus", refreshVisibleConversation);
+    document.addEventListener(
+      "visibilitychange",
+      refreshVisibleConversation,
+    );
+
+    return () => {
+      window.clearInterval(presencePoll);
+      window.removeEventListener("focus", refreshVisibleConversation);
+      document.removeEventListener(
+        "visibilitychange",
+        refreshVisibleConversation,
+      );
+      void supabase.removeChannel(receiptChannel);
+    };
+  }, [
+    session,
+    selectedChat?.conversation_id,
+    selectedChat?.friend_id,
+    mobileChatOpen,
+  ]);
+
+  useEffect(() => {
+    if (!session || !selectedChat || messages.length === 0) return;
+
+    const chatIsVisible =
+      document.visibilityState === "visible" &&
+      (mobileChatOpen || window.matchMedia("(min-width: 768px)").matches);
+    if (!chatIsVisible) return;
+
+    void markConversationRead(selectedChat.conversation_id);
+  }, [
+    session,
+    selectedChat?.conversation_id,
+    messages.length,
+    mobileChatOpen,
+  ]);
 
   useEffect(() => {
     if (!session || !selectedChat) {
@@ -1131,6 +1290,53 @@ export default function Home() {
       grouped[reaction.message_id].push(reaction);
     }
     setMessageReactions(grouped);
+  }
+
+  async function loadFriendPresence(friendId: string) {
+    const { data, error: presenceError } = await supabase.rpc(
+      "get_friend_presence",
+      { target_user_id: friendId },
+    );
+
+    if (presenceError) {
+      setError(`Could not load online status: ${presenceError.message}`);
+      return;
+    }
+
+    setFriendLastSeenAt(
+      typeof data === "string" ? data : data ? String(data) : null,
+    );
+    setPresenceClock(Date.now());
+  }
+
+  async function loadReadReceipts(
+    conversationId: string,
+    friendId: string,
+  ) {
+    const { data, error: receiptError } = await supabase.rpc(
+      "get_conversation_read_receipts",
+      { target_conversation_id: conversationId },
+    );
+
+    if (receiptError) {
+      setError(`Could not load read receipts: ${receiptError.message}`);
+      return;
+    }
+
+    const friendReceipt = (
+      (data ?? []) as ConversationReadReceipt[]
+    ).find((receipt) => receipt.user_id === friendId);
+    setFriendLastReadAt(friendReceipt?.last_read_at ?? null);
+  }
+
+  async function markConversationRead(conversationId: string) {
+    const { error: readError } = await supabase.rpc("mark_conversation_read", {
+      target_conversation_id: conversationId,
+    });
+
+    if (readError) {
+      setError(`Could not mark messages as read: ${readError.message}`);
+    }
   }
 
   function startReply(message: Message) {
@@ -1811,7 +2017,13 @@ export default function Home() {
                 <Avatar name={selectedChat.display_name} isDark={isDark} />
                 <div className="min-w-0 flex-1">
                   <h2 className="truncate font-black">{selectedChat.display_name}</h2>
-                  <p className={`hidden truncate text-xs min-[380px]:block ${muted}`}>@{selectedChat.username}</p>
+                  <p
+                    className={`truncate text-xs ${
+                      friendIsOnline ? "font-semibold text-emerald-500" : muted
+                    }`}
+                  >
+                    {friendPresenceText}
+                  </p>
                 </div>
                 <button
                   type="button"
@@ -1965,6 +2177,11 @@ export default function Home() {
                       )
                     : null;
                   const reactions = messageReactions[message.id] ?? [];
+                  const seen =
+                    mine &&
+                    Boolean(friendLastReadAt) &&
+                    new Date(friendLastReadAt!).getTime() >=
+                      new Date(message.created_at).getTime();
                   const reactionSummary = reactions.reduce<
                     Record<string, number>
                   >((summary, reaction) => {
@@ -2028,7 +2245,25 @@ export default function Home() {
                           <div id={`message-${message.id}`}>
                             <MessageContent message={message} />
                           </div>
-                          <p className="mt-2 text-xs opacity-50">{new Date(message.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</p>
+                          <div className="mt-2 flex items-center justify-end gap-1.5 text-xs opacity-50">
+                            <span>
+                              {new Date(message.created_at).toLocaleTimeString(
+                                [],
+                                { hour: "2-digit", minute: "2-digit" },
+                              )}
+                            </span>
+                            {mine &&
+                              !bot &&
+                              message.id === latestOwnMessageId && (
+                                <span
+                                  className={
+                                    seen ? "font-bold text-cyan-700" : ""
+                                  }
+                                >
+                                  {seen ? "✓✓ Seen" : "✓ Sent"}
+                                </span>
+                              )}
+                          </div>
                         </div>
                         {Object.keys(reactionSummary).length > 0 && (
                           <div className={`-mt-1 flex flex-wrap gap-1 rounded-full border px-1.5 py-0.5 text-sm shadow-sm ${isDark ? "border-white/10 bg-slate-900" : "border-slate-200 bg-white"}`}>
