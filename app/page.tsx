@@ -318,6 +318,7 @@ export default function Home() {
 
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const messageCacheRef = useRef<Map<string, Message[]>>(new Map());
+  const deepLinkHistoryPreparedRef = useRef(false);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const videoInputRef = useRef<HTMLInputElement | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -403,12 +404,35 @@ export default function Home() {
 
     const nextChats = (data ?? []) as Chat[];
     setChats(nextChats);
+    const linkedConversationId =
+      typeof window === "undefined"
+        ? undefined
+        : new URLSearchParams(window.location.search).get("conversation") ??
+          undefined;
+
+    if (
+      linkedConversationId &&
+      window.matchMedia("(max-width: 767px)").matches &&
+      !window.history.state?.haaahoooChat &&
+      !deepLinkHistoryPreparedRef.current
+    ) {
+      const chatUrl = new URL(window.location.href);
+      const listUrl = new URL(window.location.href);
+      listUrl.searchParams.delete("conversation");
+      window.history.replaceState(
+        { haaahoooList: true },
+        "",
+        `${listUrl.pathname}${listUrl.search}${listUrl.hash}`,
+      );
+      window.history.pushState(
+        { haaahoooChat: linkedConversationId },
+        "",
+        `${chatUrl.pathname}${chatUrl.search}${chatUrl.hash}`,
+      );
+      deepLinkHistoryPreparedRef.current = true;
+    }
+
     setSelectedChat((current) => {
-      const linkedConversationId =
-        typeof window === "undefined"
-          ? undefined
-          : new URLSearchParams(window.location.search).get("conversation") ??
-            undefined;
       const targetId =
         preferredConversationId ??
         linkedConversationId ??
@@ -564,6 +588,39 @@ export default function Home() {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  useEffect(() => {
+    function handlePhoneBack() {
+      const conversationId = new URLSearchParams(window.location.search).get(
+        "conversation",
+      );
+
+      if (!conversationId) {
+        setMobileChatOpen(false);
+        setMediaOpen(false);
+        setEmojiOpen(false);
+        setSettingsOpen(false);
+        return;
+      }
+
+      const matchingChat = chats.find(
+        (chat) => chat.conversation_id === conversationId,
+      );
+      if (!matchingChat) return;
+
+      setSelectedChat(matchingChat);
+      setMessages(
+        messageCacheRef.current.get(matchingChat.conversation_id) ?? [],
+      );
+      setMessagesLoading(
+        !messageCacheRef.current.has(matchingChat.conversation_id),
+      );
+      setMobileChatOpen(true);
+    }
+
+    window.addEventListener("popstate", handlePhoneBack);
+    return () => window.removeEventListener("popstate", handlePhoneBack);
+  }, [chats]);
 
   async function signUp() {
     setError("");
@@ -857,11 +914,41 @@ export default function Home() {
   }
 
   function openChat(chat: Chat) {
+    if (
+      typeof window !== "undefined" &&
+      window.matchMedia("(max-width: 767px)").matches
+    ) {
+      const chatUrl = new URL(window.location.href);
+      const currentConversationId = chatUrl.searchParams.get("conversation");
+
+      if (currentConversationId !== chat.conversation_id) {
+        chatUrl.searchParams.set("conversation", chat.conversation_id);
+        window.history.pushState(
+          { haaahoooChat: chat.conversation_id },
+          "",
+          `${chatUrl.pathname}${chatUrl.search}${chatUrl.hash}`,
+        );
+      }
+    }
+
     setSelectedChat(chat);
     setMobileChatOpen(true);
     setMessages(messageCacheRef.current.get(chat.conversation_id) ?? []);
     setMessagesLoading(!messageCacheRef.current.has(chat.conversation_id));
     setError("");
+  }
+
+  function closeMobileChat() {
+    if (
+      typeof window !== "undefined" &&
+      window.matchMedia("(max-width: 767px)").matches &&
+      new URLSearchParams(window.location.search).has("conversation")
+    ) {
+      window.history.back();
+      return;
+    }
+
+    setMobileChatOpen(false);
   }
 
   if (!session) {
@@ -1097,7 +1184,7 @@ export default function Home() {
           {selectedChat ? (
             <>
               <header className={`mobile-safe-top flex min-h-14 items-center gap-2 border-b px-2.5 py-2 md:gap-3 md:p-4 ${isDark ? "border-white/10" : "border-slate-200"}`}>
-                <button onClick={() => setMobileChatOpen(false)} className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-2xl md:hidden ${isDark ? "bg-white/10" : "bg-slate-100"}`} aria-label="Back to chats">‹</button>
+                <button onClick={closeMobileChat} className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-2xl md:hidden ${isDark ? "bg-white/10" : "bg-slate-100"}`} aria-label="Back to chats">‹</button>
                 <Avatar name={selectedChat.display_name} isDark={isDark} />
                 <div className="min-w-0 flex-1">
                   <h2 className="truncate font-black">{selectedChat.display_name}</h2>
