@@ -1,6 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabaseClient";
 import {
@@ -87,7 +94,20 @@ type Message = {
   file_path: string | null;
   file_name: string | null;
   file_mime: string | null;
+  reply_to_message_id: string | null;
   file_url?: string | null;
+};
+
+type MessageReaction = {
+  message_id: string;
+  user_id: string;
+  emoji: string;
+};
+
+type MessageActionMenu = {
+  message: Message;
+  x: number;
+  y: number;
 };
 
 const THEME_STORAGE_KEY = "private-chat-theme-mode";
@@ -98,6 +118,7 @@ const CHAT_EMOJIS = [
   "😅", "😎", "🤔", "🙄", "😴", "😡", "❤️", "💕",
   "✨", "🔥", "👍", "👏", "🙏", "🎉", "☕", "🐮",
 ];
+const QUICK_REACTIONS = ["❤️", "😂", "😮", "😢", "👍", "🙏"];
 
 const STARS = Array.from({ length: 75 }, (_, index) => ({
   left: (index * 37) % 100,
@@ -138,6 +159,14 @@ function getInitials(value: string) {
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase())
     .join("") || "?";
+}
+
+function getMessagePreview(message: Message) {
+  if (message.body) return message.body;
+  if (message.message_type === "image") return "Photo";
+  if (message.message_type === "video") return "Video";
+  if (message.message_type === "audio") return "Voice note";
+  return "Message";
 }
 
 function Avatar({
@@ -336,6 +365,12 @@ export default function Home() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [messageRefreshKey, setMessageRefreshKey] = useState(0);
+  const [replyingTo, setReplyingTo] = useState<Message | null>(null);
+  const [messageReactions, setMessageReactions] = useState<
+    Record<string, MessageReaction[]>
+  >({});
+  const [messageActionMenu, setMessageActionMenu] =
+    useState<MessageActionMenu | null>(null);
   const [text, setText] = useState("");
   const [error, setError] = useState("");
   const [uploading, setUploading] = useState(false);
@@ -362,6 +397,13 @@ export default function Home() {
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const messageCacheRef = useRef<Map<string, Message[]>>(new Map());
   const deepLinkHistoryPreparedRef = useRef(false);
+  const gestureRef = useRef<{
+    message: Message;
+    startX: number;
+    startY: number;
+    pointerId: number;
+  } | null>(null);
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const videoInputRef = useRef<HTMLInputElement | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -572,6 +614,8 @@ export default function Home() {
     if (!session || !selectedChat) {
       setMessages([]);
       setMessagesLoading(false);
+      setReplyingTo(null);
+      setMessageReactions({});
       return;
     }
 
@@ -608,6 +652,7 @@ export default function Home() {
         messageCacheRef.current.set(conversationId, rows);
         setMessages(rows);
         setMessagesLoading(false);
+        void loadMessageReactions(rows.map((message) => message.id));
       }
     }
 
@@ -635,6 +680,11 @@ export default function Home() {
             messageCacheRef.current.set(conversationId, nextMessages);
             return nextMessages;
           });
+          const cachedIds =
+            messageCacheRef.current
+              .get(conversationId)
+              ?.map((message) => message.id) ?? [];
+          void loadMessageReactions([...cachedIds, messageWithUrl.id]);
           void loadChats(conversationId);
         },
       )
@@ -658,6 +708,27 @@ export default function Home() {
       void supabase.removeChannel(channel);
     };
   }, [session, selectedChat?.conversation_id, messageRefreshKey]);
+
+  useEffect(() => {
+    if (!session || !selectedChat) return;
+
+    const reactionChannel = supabase
+      .channel(`reactions-${selectedChat.conversation_id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "message_reactions",
+        },
+        () => void loadMessageReactions(messages.map((message) => message.id)),
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(reactionChannel);
+    };
+  }, [session, selectedChat?.conversation_id, messages]);
 
   useEffect(() => {
     if (!session || !selectedChat) {
@@ -1037,6 +1108,155 @@ export default function Home() {
     );
   }
 
+  async function loadMessageReactions(messageIds: string[]) {
+    const uniqueIds = [...new Set(messageIds)];
+    if (uniqueIds.length === 0) {
+      setMessageReactions({});
+      return;
+    }
+
+    const { data, error: reactionError } = await supabase
+      .from("message_reactions")
+      .select("message_id, user_id, emoji")
+      .in("message_id", uniqueIds);
+
+    if (reactionError) {
+      setError(`Could not load reactions: ${reactionError.message}`);
+      return;
+    }
+
+    const grouped: Record<string, MessageReaction[]> = {};
+    for (const reaction of (data ?? []) as MessageReaction[]) {
+      grouped[reaction.message_id] ??= [];
+      grouped[reaction.message_id].push(reaction);
+    }
+    setMessageReactions(grouped);
+  }
+
+  function startReply(message: Message) {
+    setReplyingTo(message);
+    setMessageActionMenu(null);
+    window.setTimeout(() => {
+      document.querySelector<HTMLInputElement>("#message-composer")?.focus();
+    }, 0);
+  }
+
+  function openMessageActions(message: Message, clientX: number, clientY: number) {
+    const menuWidth = 300;
+    const menuHeight = 120;
+    setMessageActionMenu({
+      message,
+      x: Math.max(8, Math.min(clientX, window.innerWidth - menuWidth - 8)),
+      y: Math.max(8, Math.min(clientY, window.innerHeight - menuHeight - 8)),
+    });
+  }
+
+  function handleMessageContextMenu(
+    event: ReactMouseEvent<HTMLDivElement>,
+    message: Message,
+  ) {
+    event.preventDefault();
+    openMessageActions(message, event.clientX, event.clientY);
+  }
+
+  function clearLongPressTimer() {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  }
+
+  function handleMessagePointerDown(
+    event: ReactPointerEvent<HTMLDivElement>,
+    message: Message,
+  ) {
+    if (event.pointerType === "mouse") return;
+    clearLongPressTimer();
+    gestureRef.current = {
+      message,
+      startX: event.clientX,
+      startY: event.clientY,
+      pointerId: event.pointerId,
+    };
+
+    longPressTimerRef.current = setTimeout(() => {
+      if (!gestureRef.current) return;
+      openMessageActions(
+        message,
+        window.innerWidth / 2,
+        Math.min(event.clientY, window.innerHeight - 140),
+      );
+      gestureRef.current = null;
+      if (navigator.vibrate) navigator.vibrate(35);
+    }, 550);
+  }
+
+  function handleMessagePointerMove(event: ReactPointerEvent<HTMLDivElement>) {
+    const gesture = gestureRef.current;
+    if (!gesture || gesture.pointerId !== event.pointerId) return;
+    const movedX = event.clientX - gesture.startX;
+    const movedY = event.clientY - gesture.startY;
+    if (Math.abs(movedX) > 10 || Math.abs(movedY) > 10) {
+      clearLongPressTimer();
+    }
+  }
+
+  function handleMessagePointerUp(event: ReactPointerEvent<HTMLDivElement>) {
+    clearLongPressTimer();
+    const gesture = gestureRef.current;
+    gestureRef.current = null;
+    if (!gesture || gesture.pointerId !== event.pointerId) return;
+
+    const movedX = event.clientX - gesture.startX;
+    const movedY = event.clientY - gesture.startY;
+    if (movedX > 55 && Math.abs(movedY) < 40) {
+      startReply(gesture.message);
+      if (navigator.vibrate) navigator.vibrate(20);
+    }
+  }
+
+  function cancelMessageGesture() {
+    clearLongPressTimer();
+    gestureRef.current = null;
+  }
+
+  async function toggleReaction(message: Message, emoji: string) {
+    if (!session) return;
+    setMessageActionMenu(null);
+    const currentReaction = (messageReactions[message.id] ?? []).find(
+      (reaction) => reaction.user_id === session.user.id,
+    );
+
+    if (currentReaction?.emoji === emoji) {
+      const { error: deleteError } = await supabase
+        .from("message_reactions")
+        .delete()
+        .eq("message_id", message.id)
+        .eq("user_id", session.user.id);
+      if (deleteError) {
+        setError(deleteError.message);
+        return;
+      }
+    } else {
+      const { error: reactionError } = await supabase
+        .from("message_reactions")
+        .upsert(
+          {
+            message_id: message.id,
+            user_id: session.user.id,
+            emoji,
+          },
+          { onConflict: "message_id,user_id" },
+        );
+      if (reactionError) {
+        setError(reactionError.message);
+        return;
+      }
+    }
+
+    await loadMessageReactions(messages.map((item) => item.id));
+  }
+
   async function searchFriends() {
     const query = friendSearch.trim();
     if (!query) {
@@ -1088,6 +1308,7 @@ export default function Home() {
   async function sendMessage() {
     const body = text.trim();
     if (!body || !session || !selectedChat) return;
+    const replyToMessageId = replyingTo?.id ?? null;
     setText("");
     setError("");
 
@@ -1097,6 +1318,7 @@ export default function Home() {
       sender_id: session.user.id,
       message_type: "text",
       is_bot: false,
+      reply_to_message_id: replyToMessageId,
     });
 
     if (messageError) {
@@ -1105,6 +1327,7 @@ export default function Home() {
       return;
     }
 
+    setReplyingTo(null);
     await sendPushNotification("text", selectedChat.conversation_id);
 
     if (/(^|\s)@swiggy\b/i.test(body)) {
@@ -1134,6 +1357,7 @@ export default function Home() {
 
   async function uploadFile(file: File, forcedType?: MessageType) {
     if (!session || !selectedChat) return;
+    const replyToMessageId = replyingTo?.id ?? null;
     const messageType = forcedType ?? getMessageTypeFromFile(file);
     if (!messageType) {
       setError("Only image, video, and audio files are allowed.");
@@ -1165,6 +1389,7 @@ export default function Home() {
       file_name: file.name,
       file_mime: file.type,
       is_bot: false,
+      reply_to_message_id: replyToMessageId,
     });
     setUploading(false);
 
@@ -1172,6 +1397,7 @@ export default function Home() {
       setError(messageError.message);
       return;
     }
+    setReplyingTo(null);
     await sendPushNotification(messageType, selectedChat.conversation_id);
   }
 
@@ -1239,6 +1465,8 @@ export default function Home() {
     setMobileChatOpen(true);
     setMessages(messageCacheRef.current.get(chat.conversation_id) ?? []);
     setMessagesLoading(!messageCacheRef.current.has(chat.conversation_id));
+    setReplyingTo(null);
+    setMessageActionMenu(null);
     setError("");
   }
 
@@ -1253,6 +1481,8 @@ export default function Home() {
     }
 
     setMobileChatOpen(false);
+    setReplyingTo(null);
+    setMessageActionMenu(null);
   }
 
   if (!session) {
@@ -1336,6 +1566,53 @@ export default function Home() {
       <SkyBackground theme={effectiveTheme} />
       <input ref={imageInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
       <input ref={videoInputRef} type="file" accept="video/*" className="hidden" onChange={handleFileChange} />
+
+      {messageActionMenu && (
+        <>
+          <button
+            type="button"
+            className="fixed inset-0 z-[80] cursor-default bg-transparent"
+            onClick={() => setMessageActionMenu(null)}
+            aria-label="Close message actions"
+          />
+          <div
+            className={`fixed z-[90] w-[min(18.75rem,calc(100vw-1rem))] rounded-2xl border p-2 shadow-2xl ${panel}`}
+            style={{
+              left: messageActionMenu.x,
+              top: messageActionMenu.y,
+            }}
+            role="menu"
+          >
+            <div className="grid grid-cols-6 gap-1">
+              {QUICK_REACTIONS.map((emoji) => (
+                <button
+                  type="button"
+                  key={emoji}
+                  onClick={() =>
+                    void toggleReaction(messageActionMenu.message, emoji)
+                  }
+                  className={`flex h-10 items-center justify-center rounded-xl text-xl ${
+                    isDark ? "hover:bg-white/15" : "hover:bg-slate-100"
+                  }`}
+                  aria-label={`React with ${emoji}`}
+                >
+                  {emoji}
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={() => startReply(messageActionMenu.message)}
+              className={`mt-1 w-full rounded-xl px-3 py-2.5 text-left text-sm font-bold ${
+                isDark ? "hover:bg-white/10" : "hover:bg-slate-100"
+              }`}
+              role="menuitem"
+            >
+              ↩ Reply
+            </button>
+          </div>
+        </>
+      )}
 
       <div className={`relative z-10 mx-auto grid h-[100dvh] w-full max-w-6xl grid-cols-[minmax(0,1fr)] overflow-hidden border backdrop-blur-xl md:h-[calc(100dvh-2rem)] md:grid-cols-[320px_minmax(0,1fr)] md:rounded-3xl ${panel}`}>
         <aside
@@ -1682,18 +1959,99 @@ export default function Home() {
                 {messages.map((message) => {
                   const bot = message.is_bot;
                   const mine = message.sender_id === session.user.id;
+                  const repliedMessage = message.reply_to_message_id
+                    ? messages.find(
+                        (item) => item.id === message.reply_to_message_id,
+                      )
+                    : null;
+                  const reactions = messageReactions[message.id] ?? [];
+                  const reactionSummary = reactions.reduce<
+                    Record<string, number>
+                  >((summary, reaction) => {
+                    summary[reaction.emoji] =
+                      (summary[reaction.emoji] ?? 0) + 1;
+                    return summary;
+                  }, {});
                   return (
                     <div key={message.id} className={`mb-2.5 flex md:mb-3 ${mine && !bot ? "justify-end" : "justify-start"}`}>
-                      <div className={`max-w-[88%] rounded-3xl px-3.5 py-2.5 shadow-sm md:max-w-[72%] md:px-4 md:py-3 ${
-                        bot
-                          ? isDark ? "rounded-tl-md border border-amber-300/40 bg-amber-300/20 text-amber-50" : "rounded-tl-md border border-amber-300 bg-amber-100 text-amber-950"
-                          : mine
-                            ? isDark ? "bg-violet-400 text-slate-950" : "bg-sky-500 text-white"
-                            : isDark ? "border border-white/10 bg-white/10" : "border border-slate-200 bg-white"
-                      }`}>
-                        {bot && <p className={`mb-1 text-xs font-black uppercase ${isDark ? "text-amber-300" : "text-amber-700"}`}>{message.sender_name ?? "Swiggy"}</p>}
-                        <MessageContent message={message} />
-                        <p className="mt-2 text-xs opacity-50">{new Date(message.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</p>
+                      <div className={`flex max-w-[88%] flex-col md:max-w-[72%] ${mine && !bot ? "items-end" : "items-start"}`}>
+                        <div
+                          onContextMenu={(event) =>
+                            handleMessageContextMenu(event, message)
+                          }
+                          onPointerDown={(event) =>
+                            handleMessagePointerDown(event, message)
+                          }
+                          onPointerMove={handleMessagePointerMove}
+                          onPointerUp={handleMessagePointerUp}
+                          onPointerCancel={cancelMessageGesture}
+                          className={`select-none rounded-3xl px-3.5 py-2.5 shadow-sm md:px-4 md:py-3 ${
+                            bot
+                              ? isDark ? "rounded-tl-md border border-amber-300/40 bg-amber-300/20 text-amber-50" : "rounded-tl-md border border-amber-300 bg-amber-100 text-amber-950"
+                              : mine
+                                ? isDark ? "bg-violet-400 text-slate-950" : "bg-sky-500 text-white"
+                                : isDark ? "border border-white/10 bg-white/10" : "border border-slate-200 bg-white"
+                          }`}
+                          style={{ touchAction: "pan-y" }}
+                        >
+                          {bot && <p className={`mb-1 text-xs font-black uppercase ${isDark ? "text-amber-300" : "text-amber-700"}`}>{message.sender_name ?? "Swiggy"}</p>}
+                          {message.reply_to_message_id && (
+                            <button
+                              type="button"
+                              className="mb-2 block w-full min-w-0 rounded-xl border-l-4 border-current bg-black/10 px-3 py-2 text-left"
+                              onClick={() => {
+                                const target = document.getElementById(
+                                  `message-${message.reply_to_message_id}`,
+                                );
+                                target?.scrollIntoView({
+                                  behavior: "smooth",
+                                  block: "center",
+                                });
+                              }}
+                            >
+                              <span className="block truncate text-xs font-black opacity-75">
+                                {repliedMessage
+                                  ? repliedMessage.is_bot
+                                    ? repliedMessage.sender_name ?? "Swiggy"
+                                    : repliedMessage.sender_id === session.user.id
+                                      ? "You"
+                                      : selectedChat.display_name
+                                  : "Original message"}
+                              </span>
+                              <span className="block max-w-full truncate text-xs opacity-65">
+                                {repliedMessage
+                                  ? getMessagePreview(repliedMessage)
+                                  : "Message unavailable"}
+                              </span>
+                            </button>
+                          )}
+                          <div id={`message-${message.id}`}>
+                            <MessageContent message={message} />
+                          </div>
+                          <p className="mt-2 text-xs opacity-50">{new Date(message.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</p>
+                        </div>
+                        {Object.keys(reactionSummary).length > 0 && (
+                          <div className={`-mt-1 flex flex-wrap gap-1 rounded-full border px-1.5 py-0.5 text-sm shadow-sm ${isDark ? "border-white/10 bg-slate-900" : "border-slate-200 bg-white"}`}>
+                            {Object.entries(reactionSummary).map(
+                              ([emoji, count]) => (
+                                <button
+                                  type="button"
+                                  key={emoji}
+                                  onClick={() => void toggleReaction(message, emoji)}
+                                  className="rounded-full px-1"
+                                  title={`${count} reaction${count === 1 ? "" : "s"}`}
+                                >
+                                  {emoji}
+                                  {count > 1 && (
+                                    <span className="ml-0.5 text-[10px] opacity-60">
+                                      {count}
+                                    </span>
+                                  )}
+                                </button>
+                              ),
+                            )}
+                          </div>
+                        )}
                       </div>
                     </div>
                   );
@@ -1702,6 +2060,31 @@ export default function Home() {
               </div>
 
               <footer className={`mobile-safe-bottom relative border-t px-2.5 py-2 md:p-4 ${isDark ? "border-white/10" : "border-slate-200"}`}>
+                {replyingTo && (
+                  <div className={`mb-2 flex items-center gap-3 rounded-xl border-l-4 px-3 py-2 ${isDark ? "border-violet-300 bg-white/10" : "border-sky-500 bg-slate-100"}`}>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-xs font-black">
+                        Replying to{" "}
+                        {replyingTo.is_bot
+                          ? replyingTo.sender_name ?? "Swiggy"
+                          : replyingTo.sender_id === session.user.id
+                            ? "yourself"
+                            : selectedChat.display_name}
+                      </p>
+                      <p className={`truncate text-xs ${muted}`}>
+                        {getMessagePreview(replyingTo)}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setReplyingTo(null)}
+                      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${isDark ? "bg-white/10" : "bg-white"}`}
+                      aria-label="Cancel reply"
+                    >
+                      ×
+                    </button>
+                  </div>
+                )}
                 <div className="flex items-end gap-1.5 md:gap-2">
                   <div className="relative">
                     <button
@@ -1730,6 +2113,7 @@ export default function Home() {
                   </div>
                   {isRecording && <button onClick={stopRecording} className="h-12 rounded-full bg-red-500 px-4 text-sm font-bold text-white">Stop</button>}
                   <input
+                    id="message-composer"
                     className={`h-11 min-w-0 flex-1 rounded-2xl border px-3 py-2 outline-none md:h-14 md:px-4 md:py-3 ${inputClass}`}
                     placeholder={`Message ${selectedChat.display_name}`}
                     value={text}
