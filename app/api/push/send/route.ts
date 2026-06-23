@@ -4,7 +4,7 @@ import { supabaseAdmin, supabaseAuthClient } from "@/lib/supabaseAdmin";
 
 export const runtime = "nodejs";
 
-type MessageType = "text" | "image" | "video" | "audio";
+type MessageType = "text" | "image" | "video" | "audio" | "call";
 
 type StoredPushSubscription = {
   endpoint: string;
@@ -22,6 +22,7 @@ function getNotificationBody(messageType: MessageType) {
   if (messageType === "image") return "New photo";
   if (messageType === "video") return "New video";
   if (messageType === "audio") return "New voice note";
+  if (messageType === "call") return "Incoming voice call";
   return "New message";
 }
 

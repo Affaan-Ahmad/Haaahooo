@@ -14,6 +14,7 @@ import {
   setupPushNotifications,
   sendPushNotification,
 } from "@/lib/clientNotifications";
+import { useVoiceCall } from "@/lib/useVoiceCall";
 
 type MessageType = "text" | "image" | "video" | "audio";
 type ThemeMode = "auto" | "light" | "dark";
@@ -203,6 +204,14 @@ function formatLastSeen(lastSeenAt: string | null, now: number) {
     month: "short",
     day: "numeric",
   })}`;
+}
+
+function formatCallDuration(seconds: number) {
+  const minutes = Math.floor(seconds / 60)
+    .toString()
+    .padStart(2, "0");
+  const remainingSeconds = (seconds % 60).toString().padStart(2, "0");
+  return `${minutes}:${remainingSeconds}`;
 }
 
 function Avatar({
@@ -468,6 +477,10 @@ export default function Home() {
         (message) =>
           !message.is_bot && message.sender_id === session?.user.id,
       )?.id ?? null;
+  const voiceCall = useVoiceCall({
+    userId: session?.user.id ?? null,
+    chats,
+  });
 
   useEffect(() => {
     const savedTheme = localStorage.getItem(THEME_STORAGE_KEY) as ThemeMode | null;
@@ -1772,6 +1785,105 @@ export default function Home() {
       <SkyBackground theme={effectiveTheme} />
       <input ref={imageInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
       <input ref={videoInputRef} type="file" accept="video/*" className="hidden" onChange={handleFileChange} />
+      <audio ref={voiceCall.remoteAudioRef} autoPlay playsInline className="hidden" />
+
+      {voiceCall.phase !== "idle" && voiceCall.call && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/80 p-4 backdrop-blur-md">
+          <section
+            className={`mobile-safe-top mobile-safe-bottom flex min-h-[28rem] w-full max-w-sm flex-col items-center justify-between rounded-3xl border p-6 text-center shadow-2xl ${panel}`}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Voice call"
+          >
+            <div className="w-full">
+              <p className={`text-sm font-bold uppercase tracking-wide ${muted}`}>
+                {voiceCall.phase === "incoming"
+                  ? "Incoming voice call"
+                  : voiceCall.phase === "outgoing"
+                    ? "Calling"
+                    : voiceCall.phase === "connecting"
+                      ? "Connecting"
+                      : "Voice call"}
+              </p>
+              {voiceCall.error && (
+                <p className="mt-3 rounded-xl bg-red-500/15 p-2 text-sm text-red-500">
+                  {voiceCall.error}
+                </p>
+              )}
+            </div>
+
+            <div className="flex flex-col items-center">
+              <Avatar name={voiceCall.peerName} isDark={isDark} size="lg" />
+              <h2 className="mt-4 max-w-full truncate text-2xl font-black">
+                {voiceCall.peerName}
+              </h2>
+              <p className={`mt-2 text-sm ${muted}`}>
+                {voiceCall.phase === "incoming"
+                  ? "Tap answer to connect"
+                  : voiceCall.phase === "outgoing"
+                    ? "Waiting for them to answer..."
+                    : voiceCall.phase === "connecting"
+                      ? "Securing audio connection..."
+                      : formatCallDuration(voiceCall.durationSeconds)}
+              </p>
+            </div>
+
+            <div className="flex w-full items-center justify-center gap-5">
+              {voiceCall.phase === "incoming" ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => void voiceCall.rejectCall()}
+                    className="flex h-16 w-16 items-center justify-center rounded-full bg-red-500 text-2xl text-white"
+                    aria-label="Reject call"
+                    title="Reject"
+                  >
+                    ×
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void voiceCall.acceptCall()}
+                    className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500 text-2xl text-white"
+                    aria-label="Answer call"
+                    title="Answer"
+                  >
+                    ☎
+                  </button>
+                </>
+              ) : (
+                <>
+                  {voiceCall.phase === "active" && (
+                    <button
+                      type="button"
+                      onClick={voiceCall.toggleMute}
+                      className={`flex h-14 w-14 items-center justify-center rounded-full text-xl ${
+                        voiceCall.muted
+                          ? "bg-amber-400 text-slate-950"
+                          : isDark
+                            ? "bg-white/15 text-white"
+                            : "bg-slate-200 text-slate-950"
+                      }`}
+                      aria-label={voiceCall.muted ? "Unmute microphone" : "Mute microphone"}
+                      title={voiceCall.muted ? "Unmute" : "Mute"}
+                    >
+                      {voiceCall.muted ? "M" : "μ"}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => void voiceCall.endCall()}
+                    className="flex h-16 w-16 items-center justify-center rounded-full bg-red-500 text-2xl text-white"
+                    aria-label="End call"
+                    title="End call"
+                  >
+                    ×
+                  </button>
+                </>
+              )}
+            </div>
+          </section>
+        </div>
+      )}
 
       {messageActionMenu && (
         <>
@@ -2025,6 +2137,18 @@ export default function Home() {
                     {friendPresenceText}
                   </p>
                 </div>
+                <button
+                  type="button"
+                  disabled={voiceCall.phase !== "idle"}
+                  onClick={() => void voiceCall.startCall(selectedChat)}
+                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-lg disabled:cursor-not-allowed disabled:opacity-40 ${
+                    isDark ? "bg-white/10" : "bg-slate-100"
+                  }`}
+                  aria-label={`Call ${selectedChat.display_name}`}
+                  title="Voice call"
+                >
+                  ☎
+                </button>
                 <button
                   type="button"
                   onClick={() => {

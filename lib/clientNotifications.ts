@@ -2,7 +2,7 @@
 
 import { supabase } from "@/lib/supabaseClient";
 
-type MessageType = "text" | "image" | "video" | "audio";
+type MessageType = "text" | "image" | "video" | "audio" | "call";
 
 function urlBase64ToUint8Array(base64String: string) {
   const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
