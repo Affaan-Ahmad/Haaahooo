@@ -218,7 +218,7 @@ function formatCallDuration(seconds: number) {
 
 function clampPanelOpacity(value: number) {
   if (!Number.isFinite(value)) return 85;
-  return Math.min(100, Math.max(35, value));
+  return Math.min(100, Math.max(10, value));
 }
 
 function Avatar({
@@ -481,8 +481,8 @@ export default function Home() {
   };
   const menuSurfaceStyle: CSSProperties = {
     backgroundColor: isDark
-      ? `rgba(2, 6, 23, ${Math.min(1, panelAlpha + 0.08)})`
-      : `rgba(255, 255, 255, ${Math.min(1, panelAlpha + 0.08)})`,
+      ? "rgba(2, 6, 23, 0.96)"
+      : "rgba(255, 255, 255, 0.96)",
   };
   const muted = isDark ? "text-white/55" : "text-slate-500";
   const inputClass = isDark
@@ -1997,7 +1997,7 @@ export default function Home() {
       )}
 
       <div
-        className={`relative z-10 mx-auto grid h-[100dvh] w-full max-w-6xl grid-cols-[minmax(0,1fr)] overflow-hidden border backdrop-blur-xl md:h-[calc(100dvh-2rem)] md:grid-cols-[320px_minmax(0,1fr)] md:rounded-3xl ${panel}`}
+        className={`relative z-10 mx-auto grid h-[100dvh] w-full max-w-6xl grid-cols-[minmax(0,1fr)] overflow-hidden border md:h-[calc(100dvh-2rem)] md:grid-cols-[320px_minmax(0,1fr)] md:rounded-3xl ${panelOpacity <= 25 ? "backdrop-blur-none" : "backdrop-blur-xl"} ${panel}`}
         style={panelSurfaceStyle}
       >
         <aside
@@ -2054,7 +2054,7 @@ export default function Home() {
                   </div>
                   <input
                     type="range"
-                    min="35"
+                    min="10"
                     max="100"
                     step="5"
                     value={panelOpacity}
@@ -2067,7 +2067,7 @@ export default function Home() {
                     aria-label="Adjust app transparency"
                   />
                   <p className={`mt-1 text-[11px] ${muted}`}>
-                    Lower makes the background more visible.
+                    Lower makes the chat shell more transparent.
                   </p>
                 </div>
                 <button onClick={() => void enableNotifications()} className={`mb-2 w-full rounded-xl px-3 py-3 text-left font-semibold ${isDark ? "bg-white/10" : "bg-slate-100"}`}>
@@ -2215,9 +2215,10 @@ export default function Home() {
         </aside>
 
         <section className={`${mobileChatOpen ? "flex" : "hidden md:flex"} relative min-h-0 min-w-0 w-full max-w-full flex-col overflow-hidden`}>
+          <SkyBackground theme={effectiveTheme} />
           {selectedChat ? (
             <>
-              <header className={`mobile-safe-top flex min-h-14 items-center gap-2 border-b px-2.5 py-2 md:gap-3 md:p-4 ${isDark ? "border-white/10" : "border-slate-200"}`}>
+              <header className={`mobile-safe-top relative z-10 flex min-h-14 items-center gap-2 border-b px-2.5 py-2 md:gap-3 md:p-4 ${isDark ? "border-white/10" : "border-slate-200"}`}>
                 <button onClick={closeMobileChat} className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-2xl md:hidden ${isDark ? "bg-white/10" : "bg-slate-100"}`} aria-label="Back to chats">‹</button>
                 <Avatar name={selectedChat.display_name} isDark={isDark} />
                 <div className="min-w-0 flex-1">
@@ -2376,7 +2377,7 @@ export default function Home() {
                 </div>
               )}
 
-              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2.5 py-3 md:p-4" onClick={() => { setMediaOpen(false); setEmojiOpen(false); }}>
+              <div className="relative z-10 min-h-0 flex-1 overflow-y-auto overscroll-contain px-2.5 py-3 md:p-4" onClick={() => { setMediaOpen(false); setEmojiOpen(false); }}>
                 {messagesLoading && messages.length === 0 && (
                   <div className={`mx-auto mt-20 max-w-sm text-center text-sm ${muted}`}>
                     Loading message history...
@@ -2402,20 +2403,6 @@ export default function Home() {
                     Boolean(friendLastReadAt) &&
                     new Date(friendLastReadAt!).getTime() >=
                       new Date(message.created_at).getTime();
-                  const messageBubbleStyle: CSSProperties = {
-                    touchAction: "pan-y",
-                    backgroundColor: bot
-                      ? isDark
-                        ? `rgba(120, 53, 15, ${Math.max(0.22, panelAlpha * 0.55)})`
-                        : `rgba(254, 243, 199, ${Math.max(0.55, panelAlpha)})`
-                      : mine
-                        ? isDark
-                          ? `rgba(167, 139, 250, ${Math.max(0.65, panelAlpha)})`
-                          : `rgba(14, 165, 233, ${Math.max(0.65, panelAlpha)})`
-                        : isDark
-                          ? `rgba(255, 255, 255, ${Math.max(0.06, panelAlpha * 0.14)})`
-                          : `rgba(255, 255, 255, ${Math.max(0.55, panelAlpha)})`,
-                  };
                   const reactionSummary = reactions.reduce<
                     Record<string, number>
                   >((summary, reaction) => {
@@ -2443,7 +2430,7 @@ export default function Home() {
                                 ? isDark ? "bg-violet-400 text-slate-950" : "bg-sky-500 text-white"
                                 : isDark ? "border border-white/10 bg-white/10" : "border border-slate-200 bg-white"
                           }`}
-                          style={messageBubbleStyle}
+                          style={{ touchAction: "pan-y" }}
                         >
                           {bot && <p className={`mb-1 text-xs font-black uppercase ${isDark ? "text-amber-300" : "text-amber-700"}`}>{message.sender_name ?? "Swiggy"}</p>}
                           {message.reply_to_message_id && (
@@ -2528,7 +2515,7 @@ export default function Home() {
                 <div ref={bottomRef} />
               </div>
 
-              <footer className={`mobile-safe-bottom relative border-t px-2.5 py-2 md:p-4 ${isDark ? "border-white/10" : "border-slate-200"}`}>
+              <footer className={`mobile-safe-bottom relative z-10 border-t px-2.5 py-2 md:p-4 ${isDark ? "border-white/10" : "border-slate-200"}`}>
                 {replyingTo && (
                   <div className={`mb-2 flex items-center gap-3 rounded-xl border-l-4 px-3 py-2 ${isDark ? "border-violet-300 bg-white/10" : "border-sky-500 bg-slate-100"}`}>
                     <div className="min-w-0 flex-1">
@@ -2601,7 +2588,7 @@ export default function Home() {
               </footer>
             </>
           ) : (
-            <div className={`flex h-full items-center justify-center text-center ${muted}`}>
+            <div className={`relative z-10 flex h-full items-center justify-center text-center ${muted}`}>
               <div>
                 <img
                   src="/icon-192.png"
