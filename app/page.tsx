@@ -387,6 +387,7 @@ function SkyBackground({ theme }: { theme: EffectiveTheme }) {
 
 export default function Home() {
   const [session, setSession] = useState<Session | null>(null);
+  const [sessionReady, setSessionReady] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [signupUsername, setSignupUsername] = useState("");
@@ -498,9 +499,13 @@ export default function Home() {
   }, [themeMode]);
 
   useEffect(() => {
-    void supabase.auth.getSession().then(({ data }) => setSession(data.session));
+    void supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session);
+      setSessionReady(true);
+    });
     const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => {
       setSession(nextSession);
+      setSessionReady(true);
     });
     return () => data.subscription.unsubscribe();
   }, []);
@@ -1704,13 +1709,36 @@ export default function Home() {
     setMessageActionMenu(null);
   }
 
+  if (!sessionReady) {
+    return (
+      <main className="flex min-h-[100dvh] items-center justify-center bg-black text-white">
+        <div className="flex flex-col items-center">
+          <img
+            src="/icon-192.png"
+            alt="Haaahooo"
+            className="app-logo-pulse h-28 w-28 rounded-[1.8rem] shadow-2xl shadow-violet-500/20"
+          />
+          <div className="mt-6 flex gap-2" aria-label="Loading Haaahooo">
+            <span className="app-loading-dot h-2.5 w-2.5 rounded-full bg-violet-300" />
+            <span className="app-loading-dot h-2.5 w-2.5 rounded-full bg-violet-300" />
+            <span className="app-loading-dot h-2.5 w-2.5 rounded-full bg-violet-300" />
+          </div>
+        </div>
+      </main>
+    );
+  }
+
   if (!session) {
     return (
       <main className="relative flex min-h-[100dvh] items-center justify-center overflow-hidden p-4">
         <SkyBackground theme={effectiveTheme} />
         <section className={`relative z-10 w-full max-w-sm rounded-3xl border p-6 shadow-2xl backdrop-blur-xl ${panel}`}>
           <div className="mb-6 text-center">
-            <div className="mb-3 text-5xl">🐮</div>
+            <img
+              src="/icon-192.png"
+              alt="Haaahooo"
+              className="mx-auto mb-3 h-20 w-20 rounded-3xl shadow-lg"
+            />
             <h1 className="text-3xl font-black">Haaahooo</h1>
             <p className={`mt-2 ${muted}`}>Private chats with the people you choose.</p>
           </div>
@@ -2490,7 +2518,11 @@ export default function Home() {
           ) : (
             <div className={`flex h-full items-center justify-center text-center ${muted}`}>
               <div>
-                <p className="mb-3 text-5xl">🐮</p>
+                <img
+                  src="/icon-192.png"
+                  alt="Haaahooo"
+                  className="mx-auto mb-3 h-20 w-20 rounded-3xl shadow-lg"
+                />
                 <h2 className="text-xl font-black">Welcome to Haaahooo</h2>
                 <p className="mt-2">Choose a chat or add a friend.</p>
               </div>
