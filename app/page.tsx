@@ -4,6 +4,7 @@ import {
   useEffect,
   useRef,
   useState,
+  type CSSProperties,
   type ChangeEvent,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
@@ -117,6 +118,7 @@ type MessageActionMenu = {
 };
 
 const THEME_STORAGE_KEY = "private-chat-theme-mode";
+const TRANSPARENCY_STORAGE_KEY = "private-chat-panel-opacity";
 const MEDIA_BUCKET = "chat-media";
 const USERNAME_PATTERN = /^[a-z0-9_]{3,24}$/;
 const CHAT_EMOJIS = [
@@ -212,6 +214,11 @@ function formatCallDuration(seconds: number) {
     .padStart(2, "0");
   const remainingSeconds = (seconds % 60).toString().padStart(2, "0");
   return `${minutes}:${remainingSeconds}`;
+}
+
+function clampPanelOpacity(value: number) {
+  if (!Number.isFinite(value)) return 85;
+  return Math.min(100, Math.max(35, value));
 }
 
 function Avatar({
@@ -442,6 +449,7 @@ export default function Home() {
 
   const [themeMode, setThemeMode] = useState<ThemeMode>("auto");
   const [timeTheme, setTimeTheme] = useState<EffectiveTheme>("light");
+  const [panelOpacity, setPanelOpacity] = useState(85);
 
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const messageCacheRef = useRef<Map<string, Message[]>>(new Map());
@@ -465,6 +473,17 @@ export default function Home() {
   const panel = isDark
     ? "border-white/10 bg-slate-950/85 text-white"
     : "border-white/80 bg-white/85 text-slate-950";
+  const panelAlpha = clampPanelOpacity(panelOpacity) / 100;
+  const panelSurfaceStyle: CSSProperties = {
+    backgroundColor: isDark
+      ? `rgba(2, 6, 23, ${panelAlpha})`
+      : `rgba(255, 255, 255, ${panelAlpha})`,
+  };
+  const menuSurfaceStyle: CSSProperties = {
+    backgroundColor: isDark
+      ? `rgba(2, 6, 23, ${Math.min(1, panelAlpha + 0.08)})`
+      : `rgba(255, 255, 255, ${Math.min(1, panelAlpha + 0.08)})`,
+  };
   const muted = isDark ? "text-white/55" : "text-slate-500";
   const inputClass = isDark
     ? "border-white/10 bg-white/10 text-white placeholder:text-white/40 focus:border-violet-300"
@@ -489,6 +508,11 @@ export default function Home() {
       setThemeMode(savedTheme);
     }
 
+    const savedPanelOpacity = Number(localStorage.getItem(TRANSPARENCY_STORAGE_KEY));
+    if (Number.isFinite(savedPanelOpacity)) {
+      setPanelOpacity(clampPanelOpacity(savedPanelOpacity));
+    }
+
     setTimeTheme(getTimeBasedTheme());
     const timer = window.setInterval(() => setTimeTheme(getTimeBasedTheme()), 60_000);
     return () => window.clearInterval(timer);
@@ -497,6 +521,13 @@ export default function Home() {
   useEffect(() => {
     localStorage.setItem(THEME_STORAGE_KEY, themeMode);
   }, [themeMode]);
+
+  useEffect(() => {
+    localStorage.setItem(
+      TRANSPARENCY_STORAGE_KEY,
+      String(clampPanelOpacity(panelOpacity)),
+    );
+  }, [panelOpacity]);
 
   useEffect(() => {
     void supabase.auth.getSession().then(({ data }) => {
@@ -1732,7 +1763,10 @@ export default function Home() {
     return (
       <main className="relative flex min-h-[100dvh] items-center justify-center overflow-hidden p-4">
         <SkyBackground theme={effectiveTheme} />
-        <section className={`relative z-10 w-full max-w-sm rounded-3xl border p-6 shadow-2xl backdrop-blur-xl ${panel}`}>
+        <section
+          className={`relative z-10 w-full max-w-sm rounded-3xl border p-6 shadow-2xl backdrop-blur-xl ${panel}`}
+          style={panelSurfaceStyle}
+        >
           <div className="mb-6 text-center">
             <img
               src="/icon-192.png"
@@ -1819,6 +1853,7 @@ export default function Home() {
         <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/80 p-4 backdrop-blur-md">
           <section
             className={`mobile-safe-top mobile-safe-bottom flex min-h-[28rem] w-full max-w-sm flex-col items-center justify-between rounded-3xl border p-6 text-center shadow-2xl ${panel}`}
+            style={menuSurfaceStyle}
             role="dialog"
             aria-modal="true"
             aria-label="Voice call"
@@ -1924,6 +1959,7 @@ export default function Home() {
           <div
             className={`fixed z-[90] w-[min(18.75rem,calc(100vw-1rem))] rounded-2xl border p-2 shadow-2xl ${panel}`}
             style={{
+              ...menuSurfaceStyle,
               left: messageActionMenu.x,
               top: messageActionMenu.y,
             }}
@@ -1960,7 +1996,10 @@ export default function Home() {
         </>
       )}
 
-      <div className={`relative z-10 mx-auto grid h-[100dvh] w-full max-w-6xl grid-cols-[minmax(0,1fr)] overflow-hidden border backdrop-blur-xl md:h-[calc(100dvh-2rem)] md:grid-cols-[320px_minmax(0,1fr)] md:rounded-3xl ${panel}`}>
+      <div
+        className={`relative z-10 mx-auto grid h-[100dvh] w-full max-w-6xl grid-cols-[minmax(0,1fr)] overflow-hidden border backdrop-blur-xl md:h-[calc(100dvh-2rem)] md:grid-cols-[320px_minmax(0,1fr)] md:rounded-3xl ${panel}`}
+        style={panelSurfaceStyle}
+      >
         <aside
           className={`${mobileChatOpen ? "hidden md:flex" : "flex"} min-h-0 min-w-0 w-full max-w-full flex-col overflow-hidden border-r ${
             isDark ? "border-white/10" : "border-slate-200"
@@ -1983,7 +2022,10 @@ export default function Home() {
             </button>
 
             {settingsOpen && (
-              <div className={`absolute right-3 top-[calc(100%+0.5rem)] z-[60] max-h-[calc(100dvh-6.5rem)] w-[calc(100vw-1.5rem)] max-w-72 overflow-y-auto overscroll-contain rounded-2xl border p-3 shadow-2xl ${panel}`}>
+              <div
+                className={`absolute right-3 top-[calc(100%+0.5rem)] z-[60] max-h-[calc(100dvh-6.5rem)] w-[calc(100vw-1.5rem)] max-w-72 overflow-y-auto overscroll-contain rounded-2xl border p-3 shadow-2xl ${panel}`}
+                style={menuSurfaceStyle}
+              >
                 <p className={`mb-2 text-xs font-bold uppercase ${muted}`}>Profile</p>
                 <input className={`mb-2 w-full rounded-xl border px-3 py-2 outline-none ${inputClass}`} value={profileDisplayName} onChange={(event) => setProfileDisplayName(event.target.value)} placeholder="Display name" />
                 <input className={`mb-3 w-full rounded-xl border px-3 py-2 outline-none ${inputClass}`} value={profileUsername} onChange={(event) => setProfileUsername(event.target.value.toLowerCase())} placeholder="Username" />
@@ -2004,6 +2046,29 @@ export default function Home() {
                   <ThemeButton label="Auto" value="auto" selected={themeMode} onClick={setThemeMode} isDark={isDark} />
                   <ThemeButton label="Light" value="light" selected={themeMode} onClick={setThemeMode} isDark={isDark} />
                   <ThemeButton label="Dark" value="dark" selected={themeMode} onClick={setThemeMode} isDark={isDark} />
+                </div>
+                <div className={`mb-3 rounded-xl p-3 ${isDark ? "bg-white/10" : "bg-slate-100"}`}>
+                  <div className="mb-2 flex items-center justify-between gap-3">
+                    <p className="text-sm font-bold">Transparency</p>
+                    <p className={`text-xs font-semibold ${muted}`}>{panelOpacity}%</p>
+                  </div>
+                  <input
+                    type="range"
+                    min="35"
+                    max="100"
+                    step="5"
+                    value={panelOpacity}
+                    onChange={(event) =>
+                      setPanelOpacity(
+                        clampPanelOpacity(Number(event.target.value)),
+                      )
+                    }
+                    className="w-full accent-violet-400"
+                    aria-label="Adjust app transparency"
+                  />
+                  <p className={`mt-1 text-[11px] ${muted}`}>
+                    Lower makes the background more visible.
+                  </p>
                 </div>
                 <button onClick={() => void enableNotifications()} className={`mb-2 w-full rounded-xl px-3 py-3 text-left font-semibold ${isDark ? "bg-white/10" : "bg-slate-100"}`}>
                   {notificationsOn ? "Notifications enabled" : "Enable notifications"}
@@ -2206,7 +2271,10 @@ export default function Home() {
               </header>
 
               {jukeboxOpen && (
-                <div className={`absolute inset-x-2 top-[calc(env(safe-area-inset-top)+4.25rem)] z-50 max-h-[calc(100dvh-8.5rem)] overflow-y-auto overscroll-contain rounded-2xl border p-3 shadow-2xl md:left-auto md:right-4 md:top-20 md:w-96 ${panel}`}>
+                <div
+                  className={`absolute inset-x-2 top-[calc(env(safe-area-inset-top)+4.25rem)] z-50 max-h-[calc(100dvh-8.5rem)] overflow-y-auto overscroll-contain rounded-2xl border p-3 shadow-2xl md:left-auto md:right-4 md:top-20 md:w-96 ${panel}`}
+                  style={menuSurfaceStyle}
+                >
                   <div className="mb-3 flex items-center justify-between gap-3">
                     <div>
                       <p className="font-black">Shared jukebox</p>
@@ -2334,6 +2402,20 @@ export default function Home() {
                     Boolean(friendLastReadAt) &&
                     new Date(friendLastReadAt!).getTime() >=
                       new Date(message.created_at).getTime();
+                  const messageBubbleStyle: CSSProperties = {
+                    touchAction: "pan-y",
+                    backgroundColor: bot
+                      ? isDark
+                        ? `rgba(120, 53, 15, ${Math.max(0.22, panelAlpha * 0.55)})`
+                        : `rgba(254, 243, 199, ${Math.max(0.55, panelAlpha)})`
+                      : mine
+                        ? isDark
+                          ? `rgba(167, 139, 250, ${Math.max(0.65, panelAlpha)})`
+                          : `rgba(14, 165, 233, ${Math.max(0.65, panelAlpha)})`
+                        : isDark
+                          ? `rgba(255, 255, 255, ${Math.max(0.06, panelAlpha * 0.14)})`
+                          : `rgba(255, 255, 255, ${Math.max(0.55, panelAlpha)})`,
+                  };
                   const reactionSummary = reactions.reduce<
                     Record<string, number>
                   >((summary, reaction) => {
@@ -2361,7 +2443,7 @@ export default function Home() {
                                 ? isDark ? "bg-violet-400 text-slate-950" : "bg-sky-500 text-white"
                                 : isDark ? "border border-white/10 bg-white/10" : "border border-slate-200 bg-white"
                           }`}
-                          style={{ touchAction: "pan-y" }}
+                          style={messageBubbleStyle}
                         >
                           {bot && <p className={`mb-1 text-xs font-black uppercase ${isDark ? "text-amber-300" : "text-amber-700"}`}>{message.sender_name ?? "Swiggy"}</p>}
                           {message.reply_to_message_id && (
@@ -2483,7 +2565,10 @@ export default function Home() {
                       +
                     </button>
                     {mediaOpen && (
-                      <div className={`absolute bottom-[calc(100%+0.75rem)] left-0 z-40 w-[min(16rem,calc(100vw-1.25rem))] rounded-2xl border p-2 shadow-2xl ${panel}`}>
+                      <div
+                        className={`absolute bottom-[calc(100%+0.75rem)] left-0 z-40 w-[min(16rem,calc(100vw-1.25rem))] rounded-2xl border p-2 shadow-2xl ${panel}`}
+                        style={menuSurfaceStyle}
+                      >
                         <button onClick={() => { setMediaOpen(false); imageInputRef.current?.click(); }} className={`w-full rounded-xl px-3 py-3 text-left text-sm font-semibold ${isDark ? "hover:bg-white/10" : "hover:bg-slate-100"}`}>📷 Photo</button>
                         <button onClick={() => { setMediaOpen(false); videoInputRef.current?.click(); }} className={`w-full rounded-xl px-3 py-3 text-left text-sm font-semibold ${isDark ? "hover:bg-white/10" : "hover:bg-slate-100"}`}>🎥 Video</button>
                         <button onClick={() => void startRecording()} className={`w-full rounded-xl px-3 py-3 text-left text-sm font-semibold ${isDark ? "hover:bg-white/10" : "hover:bg-slate-100"}`}>🎙 Voice note</button>
