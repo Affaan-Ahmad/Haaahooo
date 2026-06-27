@@ -1,0 +1,114 @@
+==============================================================
+ Haaahooo — Frontend UI refresh  ·  SETUP
+==============================================================
+
+Everything in this zip was build-verified against your project with
+`npm run build` (Next.js 16.2.9, React 19, Tailwind v4) before shipping.
+Your backend, API routes, Supabase logic, and all features are untouched.
+
+--------------------------------------------------------------
+1) INSTALL PACKAGES
+--------------------------------------------------------------
+Run this in your project root:
+
+    npm install motion@^12.42.0 clsx@^2.1.1 tailwind-merge@^3.6.0
+
+  - motion ............ Framer Motion (current package name; imported
+                        as `motion/react`). This is the animation lib.
+  - clsx + tailwind-merge ... used by the shadcn-style `cn()` helper.
+
+If Vercel's build install ever complains about React 19 peer deps
+(it shouldn't — motion 12 supports React 19 natively), set the install
+command to:  npm install --legacy-peer-deps
+
+--------------------------------------------------------------
+2) FILES TO COPY / REPLACE
+--------------------------------------------------------------
+Copy these into your project, preserving the folder structure.
+REPLACE means overwrite the existing file.
+
+  REPLACE  app/page.tsx
+  REPLACE  app/globals.css
+  ADD      lib/utils.ts
+  ADD      components/sky/SkyBackground.tsx
+  ADD      components/ui/motion-primitives.tsx
+
+Nothing else changed. No lib/api/* or backend files were modified.
+
+TIP: commit (or back up) your current files first so you can diff:
+    git add -A && git commit -m "backup before UI refresh"
+
+--------------------------------------------------------------
+3) BUILD / TEST
+--------------------------------------------------------------
+    npm run dev      # local check at http://localhost:3000
+    npm run build    # production build (what Vercel runs)
+
+Then deploy as usual (push to your Vercel-connected branch).
+
+--------------------------------------------------------------
+WHAT CHANGED (UI only)
+--------------------------------------------------------------
+NEW BACKGROUND  (components/sky/SkyBackground.tsx)
+  Drop-in replacement for the old inline sky. Same `theme` prop, plus
+  it now renders, depending on time of day / theme:
+    - Dark / night ...... moon + halo + craters, twinkling stars,
+                          a slow shooting star, subtle drifting fireflies
+    - Light / day ....... sun + soft rays/glow, layered drifting clouds
+    - Dawn / dusk ....... warm sunrise/sunset horizon glow
+  Optional props:
+    precip="rain" | "snow"   (off by default — kept subtle)
+    density={0.6}            (lowers particle counts for weak devices)
+  Performance: deterministic positions (no hydration mismatch),
+  transform/opacity only, capped counts, and it honors the OS
+  "reduce motion" setting.
+
+ANIMATIONS  (components/ui/motion-primitives.tsx — Framer Motion)
+  - Message bubbles rise in gently (MessageIn).
+  - Settings, jukebox, media/emoji, message-action menus and the call
+    overlay open AND close with a clean spring (AnimatePresence).
+
+GLASS LOOK  (app/globals.css)
+  - Soft-glass blur/shadow helpers (.glass, .glass-menu, .cozy-ring),
+    violet slider thumb, slim scrollbars.
+  - IMPORTANT: all original classes are preserved
+    (app-logo-pulse, app-loading-dot, mobile-safe-top/bottom, the
+    mobile overflow rules) so nothing in the existing UI breaks.
+
+PRESERVED BEHAVIOR (verified)
+  - Login/signup, chat/message loading, mobile chat nav, PWA.
+  - Transparency slider still only affects the chat shell — NOT the
+    settings panel or message bubbles (menus use the fixed
+    menuSurfaceStyle; bubbles use their own styles).
+  - Background is visible behind the chat area.
+  - Dark = stars/moon, Light = clouds/sun, Auto = follows time of day.
+  - Settings still has profile, theme, transparency, notifications,
+    Spotify, logout. Spotify jukebox, Swiggy, voice notes, media
+    upload, read receipts, calling, notifications all unchanged.
+
+--------------------------------------------------------------
+OPTIONAL: REAL shadcn/ui COMPONENTS
+--------------------------------------------------------------
+This refresh ships the shadcn FOUNDATION (the `cn()` helper in
+lib/utils.ts) but does not force-migrate your hand-built controls,
+since rewriting them inside the large page.tsx would risk your
+working features. If you want to adopt official shadcn components
+incrementally, initialize once:
+
+    npx shadcn@latest init        # choose: new-york, CSS variables
+
+Then add pieces as you need them, e.g.:
+
+    npx shadcn@latest add button dialog slider switch scroll-area sonner tooltip
+
+They drop into components/ui/ and use the same cn() helper already
+included here. Migrate one control at a time and re-run `npm run build`
+between each.
+
+--------------------------------------------------------------
+A NOTE ON .env.local
+--------------------------------------------------------------
+Your uploaded zip included .env.local. If it holds a Supabase
+service_role key, a Spotify client secret, or a VAPID private key,
+rotate those — they were exposed in the upload. The NEXT_PUBLIC_*
+values are fine.

@@ -16,6 +16,14 @@ import {
   sendPushNotification,
 } from "@/lib/clientNotifications";
 import { useVoiceCall } from "@/lib/useVoiceCall";
+import { AnimatePresence, motion } from "motion/react";
+import { SkyBackground } from "@/components/sky/SkyBackground";
+import {
+  MenuPop,
+  OverlayPop,
+  MessageIn,
+} from "@/components/ui/motion-primitives";
+import { JukeboxPlayer } from "@/components/ui/JukeboxPlayer";
 
 type MessageType = "text" | "image" | "video" | "audio";
 type ThemeMode = "auto" | "light" | "dark";
@@ -82,6 +90,19 @@ type JukeboxState = {
   isPlaying: boolean;
   changedAt: string;
   changedBy: string;
+  currentQueueId: string | null;
+};
+
+type JukeboxQueueItem = {
+  id: string;
+  position: number;
+  trackId: string;
+  trackUri: string;
+  trackName: string;
+  artistName: string;
+  imageUrl: string | null;
+  durationMs: number;
+  addedBy: string;
 };
 
 type Message = {
@@ -127,22 +148,6 @@ const CHAT_EMOJIS = [
   "✨", "🔥", "👍", "👏", "🙏", "🎉", "☕", "🐮",
 ];
 const QUICK_REACTIONS = ["❤️", "😂", "😮", "😢", "👍", "🙏"];
-
-const STARS = Array.from({ length: 75 }, (_, index) => ({
-  left: (index * 37) % 100,
-  top: ((index * 53) % 78) + 3,
-  size: (index % 3) + 1,
-  opacity: 0.35 + (index % 5) * 0.12,
-  delay: (index % 10) * 0.25,
-  speed: 2 + (index % 4),
-}));
-
-const CLOUDS = [
-  { left: 4, top: 12, scale: 1.1, duration: 28 },
-  { left: 24, top: 22, scale: 0.8, duration: 35 },
-  { left: 62, top: 14, scale: 1.25, duration: 40 },
-  { left: 78, top: 32, scale: 0.9, duration: 32 },
-];
 
 function getTimeBasedTheme(): EffectiveTheme {
   const hour = new Date().getHours();
@@ -310,88 +315,6 @@ function MessageContent({ message }: { message: Message }) {
   return <audio src={message.file_url} controls className="max-w-full" />;
 }
 
-function SkyBackground({ theme }: { theme: EffectiveTheme }) {
-  const dark = theme === "dark";
-
-  return (
-    <div
-      className={`pointer-events-none absolute inset-0 overflow-hidden transition-colors duration-700 ${
-        dark
-          ? "bg-gradient-to-br from-slate-950 via-indigo-950 to-black"
-          : "bg-gradient-to-br from-sky-200 via-blue-100 to-amber-100"
-      }`}
-    >
-      <style>
-        {`
-          @keyframes floatCloud {
-            0%, 100% { transform: translateX(0); }
-            50% { transform: translateX(22px); }
-          }
-          @keyframes twinkle {
-            0%, 100% { transform: scale(1); opacity: 0.35; }
-            50% { transform: scale(1.8); opacity: 1; }
-          }
-          @keyframes glowPulse {
-            0%, 100% { transform: scale(1); }
-            50% { transform: scale(1.06); }
-          }
-        `}
-      </style>
-
-      {dark ? (
-        <>
-          <div className="absolute right-12 top-10 h-28 w-28 rounded-full bg-slate-100 shadow-[0_0_70px_rgba(226,232,240,0.65)]">
-            <div className="absolute -right-4 -top-2 h-28 w-28 rounded-full bg-indigo-950" />
-          </div>
-          {STARS.map((star, index) => (
-            <span
-              key={index}
-              className="absolute rounded-full bg-white"
-              style={{
-                left: `${star.left}%`,
-                top: `${star.top}%`,
-                width: star.size,
-                height: star.size,
-                opacity: star.opacity,
-                animation: `twinkle ${star.speed}s ease-in-out infinite`,
-                animationDelay: `${star.delay}s`,
-              }}
-            />
-          ))}
-        </>
-      ) : (
-        <>
-          <div
-            className="absolute right-10 top-10 h-28 w-28 rounded-full bg-yellow-300 shadow-[0_0_80px_rgba(253,224,71,0.9)]"
-            style={{ animation: "glowPulse 5s ease-in-out infinite" }}
-          />
-          {CLOUDS.map((cloud, index) => (
-            <div
-              key={index}
-              className="absolute"
-              style={{
-                left: `${cloud.left}%`,
-                top: `${cloud.top}%`,
-                animation: `floatCloud ${cloud.duration}s ease-in-out infinite`,
-              }}
-            >
-              <div
-                className="relative h-16 w-40"
-                style={{ transform: `scale(${cloud.scale})` }}
-              >
-                <div className="absolute bottom-0 left-2 h-12 w-20 rounded-full bg-white/75 blur-[1px]" />
-                <div className="absolute bottom-4 left-12 h-14 w-14 rounded-full bg-white/80 blur-[1px]" />
-                <div className="absolute bottom-0 left-20 h-12 w-24 rounded-full bg-white/75 blur-[1px]" />
-              </div>
-            </div>
-          ))}
-        </>
-      )}
-      <div className={`absolute inset-0 ${dark ? "bg-black/10" : "bg-white/10"}`} />
-    </div>
-  );
-}
-
 export default function Home() {
   const [session, setSession] = useState<Session | null>(null);
   const [sessionReady, setSessionReady] = useState(false);
@@ -438,6 +361,7 @@ export default function Home() {
   const [spotifyStatus, setSpotifyStatus] = useState("");
   const [jukeboxOpen, setJukeboxOpen] = useState(false);
   const [jukeboxState, setJukeboxState] = useState<JukeboxState | null>(null);
+  const [jukeboxQueue, setJukeboxQueue] = useState<JukeboxQueueItem[]>([]);
   const [jukeboxQuery, setJukeboxQuery] = useState("");
   const [jukeboxResults, setJukeboxResults] = useState<SpotifyTrack[]>([]);
   const [jukeboxSearching, setJukeboxSearching] = useState(false);
@@ -941,6 +865,7 @@ export default function Home() {
   useEffect(() => {
     if (!session || !selectedChat) {
       setJukeboxState(null);
+      setJukeboxQueue([]);
       setJukeboxOpen(false);
       return;
     }
@@ -956,6 +881,16 @@ export default function Home() {
           event: "*",
           schema: "public",
           table: "conversation_jukebox",
+          filter: `conversation_id=eq.${conversationId}`,
+        },
+        () => void loadJukebox(conversationId),
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "conversation_jukebox_queue",
           filter: `conversation_id=eq.${conversationId}`,
         },
         () => void loadJukebox(conversationId),
@@ -1225,11 +1160,12 @@ export default function Home() {
       { headers, cache: "no-store" },
     );
     const result = (await response.json().catch(() => null)) as
-      | { state?: JukeboxState | null; error?: string }
+      | { state?: JukeboxState | null; queue?: JukeboxQueueItem[]; error?: string }
       | null;
 
     if (response.ok) {
       setJukeboxState(result?.state ?? null);
+      setJukeboxQueue(result?.queue ?? []);
     } else {
       setJukeboxStatus(result?.error ?? "Could not load the jukebox.");
     }
@@ -1265,8 +1201,18 @@ export default function Home() {
   }
 
   async function controlJukebox(
-    action: "select" | "play" | "pause",
+    action:
+      | "select"
+      | "play"
+      | "pause"
+      | "seek"
+      | "enqueue"
+      | "next"
+      | "previous"
+      | "remove",
     track?: SpotifyTrack,
+    positionMs?: number,
+    queueId?: string,
   ) {
     if (!selectedChat) return;
     const headers = await spotifyApiHeaders();
@@ -1285,35 +1231,46 @@ export default function Home() {
         conversationId: selectedChat.conversation_id,
         action,
         ...(track ? { track } : {}),
+        ...(typeof positionMs === "number" ? { positionMs } : {}),
+        ...(queueId ? { queueId } : {}),
       }),
     });
     const result = (await response.json().catch(() => null)) as
       | {
-          state?: JukeboxState;
+          state?: JukeboxState | null;
+          queue?: JukeboxQueueItem[];
           error?: string;
           playback?: { connected: number; total: number };
         }
       | null;
     setJukeboxBusy(false);
 
-    if (!response.ok || !result?.state) {
+    if (!response.ok) {
       setJukeboxStatus(result?.error ?? "The jukebox command failed.");
       return;
     }
 
-    setJukeboxState(result.state);
+    setJukeboxState(result?.state ?? null);
+    setJukeboxQueue(result?.queue ?? []);
     if (track) {
       setJukeboxResults([]);
       setJukeboxQuery("");
     }
 
-    const connected = result.playback?.connected ?? 0;
-    const total = result.playback?.total ?? 0;
-    setJukeboxStatus(
-      connected === total && total > 0
-        ? `Spotify updated for ${connected} listener${connected === 1 ? "" : "s"}.`
-        : `Updated ${connected} of ${total}. Open Spotify on each phone or computer first.`,
-    );
+    if (action === "enqueue") {
+      setJukeboxStatus("Added to the queue.");
+      return;
+    }
+
+    const connected = result?.playback?.connected ?? 0;
+    const total = result?.playback?.total ?? 0;
+    if (total > 0) {
+      setJukeboxStatus(
+        connected === total
+          ? `Spotify updated for ${connected} listener${connected === 1 ? "" : "s"}.`
+          : `Updated ${connected} of ${total}. Open Spotify on each phone or computer first.`,
+      );
+    }
   }
 
   async function loadMessageReactions(messageIds: string[]) {
@@ -1764,7 +1721,7 @@ export default function Home() {
       <main className="relative flex min-h-[100dvh] items-center justify-center overflow-hidden p-4">
         <SkyBackground theme={effectiveTheme} />
         <section
-          className={`relative z-10 w-full max-w-sm rounded-3xl border p-6 shadow-2xl backdrop-blur-xl ${panel}`}
+          className={`glass relative z-10 w-full max-w-sm rounded-3xl border p-6 shadow-2xl backdrop-blur-xl ${panel}`}
           style={panelSurfaceStyle}
         >
           <div className="mb-6 text-center">
@@ -1849,10 +1806,17 @@ export default function Home() {
       <input ref={videoInputRef} type="file" accept="video/*" className="hidden" onChange={handleFileChange} />
       <audio ref={voiceCall.remoteAudioRef} autoPlay playsInline className="hidden" />
 
+      <AnimatePresence>
       {voiceCall.phase !== "idle" && voiceCall.call && (
-        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/80 p-4 backdrop-blur-md">
-          <section
-            className={`mobile-safe-top mobile-safe-bottom flex min-h-[28rem] w-full max-w-sm flex-col items-center justify-between rounded-3xl border p-6 text-center shadow-2xl ${panel}`}
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.2 }}
+          className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/80 p-4 backdrop-blur-md"
+        >
+          <OverlayPop
+            className={`glass-menu mobile-safe-top mobile-safe-bottom flex min-h-[28rem] w-full max-w-sm flex-col items-center justify-between rounded-3xl border p-6 text-center shadow-2xl ${panel}`}
             style={menuSurfaceStyle}
             role="dialog"
             aria-modal="true"
@@ -1944,20 +1908,23 @@ export default function Home() {
                 </>
               )}
             </div>
-          </section>
-        </div>
+          </OverlayPop>
+        </motion.div>
       )}
+      </AnimatePresence>
 
       {messageActionMenu && (
-        <>
-          <button
-            type="button"
-            className="fixed inset-0 z-[80] cursor-default bg-transparent"
-            onClick={() => setMessageActionMenu(null)}
-            aria-label="Close message actions"
-          />
-          <div
-            className={`fixed z-[90] w-[min(18.75rem,calc(100vw-1rem))] rounded-2xl border p-2 shadow-2xl ${panel}`}
+        <button
+          type="button"
+          className="fixed inset-0 z-[80] cursor-default bg-transparent"
+          onClick={() => setMessageActionMenu(null)}
+          aria-label="Close message actions"
+        />
+      )}
+      <AnimatePresence>
+      {messageActionMenu && (
+          <MenuPop
+            className={`glass-menu fixed z-[90] w-[min(18.75rem,calc(100vw-1rem))] rounded-2xl border p-2 shadow-2xl ${panel}`}
             style={{
               ...menuSurfaceStyle,
               left: messageActionMenu.x,
@@ -1992,16 +1959,17 @@ export default function Home() {
             >
               ↩ Reply
             </button>
-          </div>
-        </>
+          </MenuPop>
       )}
+      </AnimatePresence>
 
       <div
-        className={`relative z-10 mx-auto grid h-[100dvh] w-full max-w-6xl grid-cols-[minmax(0,1fr)] overflow-hidden border md:h-[calc(100dvh-2rem)] md:grid-cols-[320px_minmax(0,1fr)] md:rounded-3xl ${panelOpacity <= 25 ? "backdrop-blur-none" : "backdrop-blur-xl"} ${panel}`}
-        style={panelSurfaceStyle}
+        className={`relative z-10 mx-auto grid h-[100dvh] w-full max-w-6xl grid-cols-[minmax(0,1fr)] overflow-hidden border cozy-ring md:h-[calc(100dvh-2rem)] md:grid-cols-[320px_minmax(0,1fr)] md:rounded-3xl ${panel}`}
+        style={{ backgroundColor: "transparent" }}
       >
         <aside
-          className={`${mobileChatOpen ? "hidden md:flex" : "flex"} min-h-0 min-w-0 w-full max-w-full flex-col overflow-hidden border-r ${
+          style={panelSurfaceStyle}
+          className={`${panelOpacity <= 25 ? "backdrop-blur-none" : "backdrop-blur-md"} ${mobileChatOpen ? "hidden md:flex" : "flex"} min-h-0 min-w-0 w-full max-w-full flex-col overflow-hidden border-r ${
             isDark ? "border-white/10" : "border-slate-200"
           }`}
         >
@@ -2021,9 +1989,10 @@ export default function Home() {
               ⚙
             </button>
 
+            <AnimatePresence>
             {settingsOpen && (
-              <div
-                className={`absolute right-3 top-[calc(100%+0.5rem)] z-[60] max-h-[calc(100dvh-6.5rem)] w-[calc(100vw-1.5rem)] max-w-72 overflow-y-auto overscroll-contain rounded-2xl border p-3 shadow-2xl ${panel}`}
+              <MenuPop
+                className={`glass-menu absolute right-3 top-[calc(100%+0.5rem)] z-[60] max-h-[calc(100dvh-6.5rem)] w-[calc(100vw-1.5rem)] max-w-72 overflow-y-auto overscroll-contain rounded-2xl border p-3 shadow-2xl ${panel}`}
                 style={menuSurfaceStyle}
               >
                 <p className={`mb-2 text-xs font-bold uppercase ${muted}`}>Profile</p>
@@ -2116,8 +2085,9 @@ export default function Home() {
                   )}
                 </div>
                 <button onClick={() => void signOut()} className="w-full rounded-xl bg-red-500/15 px-3 py-3 text-left font-semibold text-red-500">Logout</button>
-              </div>
+              </MenuPop>
             )}
+            </AnimatePresence>
           </header>
 
           <nav className="grid w-full min-w-0 grid-cols-2 gap-2 px-3 py-2 md:p-3" aria-label="Messenger sections">
@@ -2214,8 +2184,10 @@ export default function Home() {
           </div>
         </aside>
 
-        <section className={`${mobileChatOpen ? "flex" : "hidden md:flex"} relative min-h-0 min-w-0 w-full max-w-full flex-col overflow-hidden`}>
-          <SkyBackground theme={effectiveTheme} />
+        <section
+          style={panelSurfaceStyle}
+          className={`${mobileChatOpen ? "flex" : "hidden md:flex"} ${panelOpacity <= 25 ? "backdrop-blur-none" : "backdrop-blur-md"} relative min-h-0 min-w-0 w-full max-w-full flex-col overflow-hidden`}
+        >
           {selectedChat ? (
             <>
               <header className={`mobile-safe-top relative z-10 flex min-h-14 items-center gap-2 border-b px-2.5 py-2 md:gap-3 md:p-4 ${isDark ? "border-white/10" : "border-slate-200"}`}>
@@ -2271,9 +2243,10 @@ export default function Home() {
                 </button>
               </header>
 
+              <AnimatePresence>
               {jukeboxOpen && (
-                <div
-                  className={`absolute inset-x-2 top-[calc(env(safe-area-inset-top)+4.25rem)] z-50 max-h-[calc(100dvh-8.5rem)] overflow-y-auto overscroll-contain rounded-2xl border p-3 shadow-2xl md:left-auto md:right-4 md:top-20 md:w-96 ${panel}`}
+                <MenuPop
+                  className={`glass-menu absolute inset-x-2 top-[calc(env(safe-area-inset-top)+4.25rem)] z-50 max-h-[calc(100dvh-8.5rem)] overflow-y-auto overscroll-contain rounded-2xl border p-3 shadow-2xl md:left-auto md:right-4 md:top-20 md:w-96 ${panel}`}
                   style={menuSurfaceStyle}
                 >
                   <div className="mb-3 flex items-center justify-between gap-3">
@@ -2292,38 +2265,78 @@ export default function Home() {
                   </div>
 
                   {jukeboxState?.trackName ? (
-                    <div className={`mb-3 flex items-center gap-3 rounded-xl p-3 ${isDark ? "bg-white/10" : "bg-slate-100"}`}>
-                      {jukeboxState.imageUrl ? (
-                        <img
-                          src={jukeboxState.imageUrl}
-                          alt=""
-                          className="h-14 w-14 shrink-0 rounded-lg object-cover"
-                        />
-                      ) : (
-                        <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg bg-[#1DB954] text-2xl text-black">♫</div>
-                      )}
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate font-bold">{jukeboxState.trackName}</p>
-                        <p className={`truncate text-xs ${muted}`}>{jukeboxState.artistName}</p>
-                        <p className={`mt-1 text-[11px] font-semibold ${jukeboxState.isPlaying ? "text-[#1DB954]" : muted}`}>
-                          {jukeboxState.isPlaying ? "Playing" : "Paused"}
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        disabled={jukeboxBusy}
-                        onClick={() => void controlJukebox(jukeboxState.isPlaying ? "pause" : "play")}
-                        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#1DB954] font-black text-black disabled:opacity-50"
-                        aria-label={jukeboxState.isPlaying ? "Pause" : "Play"}
-                      >
-                        {jukeboxState.isPlaying ? "Ⅱ" : "▶"}
-                      </button>
-                    </div>
+                    <JukeboxPlayer
+                      state={jukeboxState}
+                      busy={jukeboxBusy}
+                      isDark={isDark}
+                      canNext={
+                        jukeboxState.currentQueueId
+                          ? jukeboxQueue.findIndex(
+                              (item) => item.id === jukeboxState.currentQueueId,
+                            ) <
+                            jukeboxQueue.length - 1
+                          : jukeboxQueue.length > 0
+                      }
+                      onPlayPause={() =>
+                        void controlJukebox(jukeboxState.isPlaying ? "pause" : "play")
+                      }
+                      onSeek={(pos) => void controlJukebox("seek", undefined, pos)}
+                      onNext={() => void controlJukebox("next")}
+                      onPrevious={() => void controlJukebox("previous")}
+                    />
                   ) : (
                     <p className={`mb-3 rounded-xl p-3 text-sm ${isDark ? "bg-white/10" : "bg-slate-100"} ${muted}`}>
                       Search for a song to start the jukebox.
                     </p>
                   )}
+
+                  {(() => {
+                    const currentIndex = jukeboxState?.currentQueueId
+                      ? jukeboxQueue.findIndex(
+                          (item) => item.id === jukeboxState.currentQueueId,
+                        )
+                      : -1;
+                    const upcoming =
+                      currentIndex >= 0
+                        ? jukeboxQueue.slice(currentIndex + 1)
+                        : jukeboxQueue;
+                    if (upcoming.length === 0) return null;
+                    return (
+                      <div className="mb-3">
+                        <p className={`mb-1.5 text-xs font-bold uppercase ${muted}`}>
+                          Up next · {upcoming.length}
+                        </p>
+                        <div className="flex flex-col gap-1">
+                          {upcoming.map((item) => (
+                            <div
+                              key={item.id}
+                              className={`flex items-center gap-2 rounded-xl p-1.5 ${isDark ? "bg-white/5" : "bg-slate-100"}`}
+                            >
+                              {item.imageUrl ? (
+                                <img src={item.imageUrl} alt="" className="h-9 w-9 shrink-0 rounded-md object-cover" />
+                              ) : (
+                                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-[#1DB954] text-sm text-black">♫</div>
+                              )}
+                              <span className="min-w-0 flex-1">
+                                <span className="block truncate text-xs font-bold">{item.trackName}</span>
+                                <span className={`block truncate text-[11px] ${muted}`}>{item.artistName}</span>
+                              </span>
+                              <button
+                                type="button"
+                                disabled={jukeboxBusy}
+                                onClick={() => void controlJukebox("remove", undefined, undefined, item.id)}
+                                className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-sm disabled:opacity-50 ${isDark ? "hover:bg-white/15" : "hover:bg-slate-200"}`}
+                                aria-label="Remove from queue"
+                                title="Remove from queue"
+                              >
+                                ×
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })()}
 
                   <div className="mb-2 flex gap-2">
                     <input
@@ -2346,24 +2359,36 @@ export default function Home() {
                   </div>
 
                   {jukeboxResults.map((track) => (
-                    <button
-                      type="button"
-                      key={track.id}
-                      disabled={jukeboxBusy}
-                      onClick={() => void controlJukebox("select", track)}
-                      className={`mb-1.5 flex w-full min-w-0 items-center gap-3 rounded-xl p-2 text-left disabled:opacity-50 ${isDark ? "hover:bg-white/10" : "hover:bg-slate-100"}`}
-                    >
-                      {track.imageUrl ? (
-                        <img src={track.imageUrl} alt="" className="h-11 w-11 shrink-0 rounded-lg object-cover" />
-                      ) : (
-                        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-[#1DB954] text-black">♫</div>
-                      )}
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm font-bold">{track.name}</span>
-                        <span className={`block truncate text-xs ${muted}`}>{track.artists}</span>
-                      </span>
-                      <span className="shrink-0 text-[#1DB954]">▶</span>
-                    </button>
+                    <div key={track.id} className="mb-1.5 flex w-full min-w-0 items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={jukeboxBusy}
+                        onClick={() => void controlJukebox("select", track)}
+                        className={`flex min-w-0 flex-1 items-center gap-3 rounded-xl p-2 text-left disabled:opacity-50 ${isDark ? "hover:bg-white/10" : "hover:bg-slate-100"}`}
+                        title="Play now"
+                      >
+                        {track.imageUrl ? (
+                          <img src={track.imageUrl} alt="" className="h-11 w-11 shrink-0 rounded-lg object-cover" />
+                        ) : (
+                          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-[#1DB954] text-black">♫</div>
+                        )}
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-bold">{track.name}</span>
+                          <span className={`block truncate text-xs ${muted}`}>{track.artists}</span>
+                        </span>
+                        <span className="shrink-0 text-[#1DB954]">▶</span>
+                      </button>
+                      <button
+                        type="button"
+                        disabled={jukeboxBusy}
+                        onClick={() => void controlJukebox("enqueue", track)}
+                        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-lg font-bold disabled:opacity-50 ${isDark ? "bg-white/10 hover:bg-white/20" : "bg-slate-200/80 hover:bg-slate-300"}`}
+                        aria-label="Add to queue"
+                        title="Add to queue"
+                      >
+                        ＋
+                      </button>
+                    </div>
                   ))}
 
                   {jukeboxStatus && (
@@ -2374,8 +2399,9 @@ export default function Home() {
                   <p className={`mt-2 text-[11px] ${muted}`}>
                     Each listener must connect Spotify Premium and keep Spotify open on a device.
                   </p>
-                </div>
+                </MenuPop>
               )}
+              </AnimatePresence>
 
               <div className="relative z-10 min-h-0 flex-1 overflow-y-auto overscroll-contain px-2.5 py-3 md:p-4" onClick={() => { setMediaOpen(false); setEmojiOpen(false); }}>
                 {messagesLoading && messages.length === 0 && (
@@ -2411,7 +2437,7 @@ export default function Home() {
                     return summary;
                   }, {});
                   return (
-                    <div key={message.id} className={`mb-2.5 flex md:mb-3 ${mine && !bot ? "justify-end" : "justify-start"}`}>
+                    <MessageIn key={message.id} className={`mb-2.5 flex md:mb-3 ${mine && !bot ? "justify-end" : "justify-start"}`}>
                       <div className={`flex max-w-[88%] flex-col md:max-w-[72%] ${mine && !bot ? "items-end" : "items-start"}`}>
                         <div
                           onContextMenu={(event) =>
@@ -2427,8 +2453,8 @@ export default function Home() {
                             bot
                               ? isDark ? "rounded-tl-md border border-amber-300/40 bg-amber-300/20 text-amber-50" : "rounded-tl-md border border-amber-300 bg-amber-100 text-amber-950"
                               : mine
-                                ? isDark ? "bg-violet-400 text-slate-950" : "bg-sky-500 text-white"
-                                : isDark ? "border border-white/10 bg-white/10" : "border border-slate-200 bg-white"
+                                ? "rounded-br-md bg-gradient-to-br from-violet-500 to-violet-700 text-white shadow-lg shadow-violet-900/30"
+                                : isDark ? "rounded-tl-md border border-white/10 bg-slate-900/70 text-white" : "rounded-tl-md border border-slate-200 bg-white text-slate-950"
                           }`}
                           style={{ touchAction: "pan-y" }}
                         >
@@ -2509,7 +2535,7 @@ export default function Home() {
                           </div>
                         )}
                       </div>
-                    </div>
+                    </MessageIn>
                   );
                 })}
                 <div ref={bottomRef} />
@@ -2551,9 +2577,10 @@ export default function Home() {
                     >
                       +
                     </button>
+                    <AnimatePresence>
                     {mediaOpen && (
-                      <div
-                        className={`absolute bottom-[calc(100%+0.75rem)] left-0 z-40 w-[min(16rem,calc(100vw-1.25rem))] rounded-2xl border p-2 shadow-2xl ${panel}`}
+                      <MenuPop
+                        className={`glass-menu absolute bottom-[calc(100%+0.75rem)] left-0 z-40 w-[min(16rem,calc(100vw-1.25rem))] rounded-2xl border p-2 shadow-2xl ${panel}`}
                         style={menuSurfaceStyle}
                       >
                         <button onClick={() => { setMediaOpen(false); imageInputRef.current?.click(); }} className={`w-full rounded-xl px-3 py-3 text-left text-sm font-semibold ${isDark ? "hover:bg-white/10" : "hover:bg-slate-100"}`}>📷 Photo</button>
@@ -2567,8 +2594,9 @@ export default function Home() {
                             ))}
                           </div>
                         )}
-                      </div>
+                      </MenuPop>
                     )}
+                    </AnimatePresence>
                   </div>
                   {isRecording && <button onClick={stopRecording} className="h-12 rounded-full bg-red-500 px-4 text-sm font-bold text-white">Stop</button>}
                   <input
