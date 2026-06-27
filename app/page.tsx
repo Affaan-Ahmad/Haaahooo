@@ -376,6 +376,9 @@ export default function Home() {
   const [panelOpacity, setPanelOpacity] = useState(85);
 
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const shouldAutoScrollRef = useRef(true);
+  const prevConversationRef = useRef<string | undefined>(undefined);
   const messageCacheRef = useRef<Map<string, Message[]>>(new Map());
   const deepLinkHistoryPreparedRef = useRef(false);
   const gestureRef = useRef<{
@@ -903,8 +906,36 @@ export default function Home() {
   }, [session, selectedChat?.conversation_id]);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+    const el = scrollContainerRef.current;
+    if (!el) return;
+
+    const conversationId = selectedChat?.conversation_id;
+    const conversationChanged = prevConversationRef.current !== conversationId;
+    prevConversationRef.current = conversationId;
+    if (conversationChanged) shouldAutoScrollRef.current = true;
+
+    // Don't yank the view down if the user has scrolled up to read history.
+    if (!conversationChanged && !shouldAutoScrollRef.current) return;
+
+    const pin = () => {
+      el.scrollTop = el.scrollHeight;
+    };
+    // Double rAF so newly added message nodes are laid out before we pin.
+    const frame = requestAnimationFrame(() => requestAnimationFrame(pin));
+    // Fallback pin after images / media finish sizing on chat open.
+    const timer = window.setTimeout(pin, 180);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.clearTimeout(timer);
+    };
+  }, [messages, selectedChat?.conversation_id]);
+
+  function handleMessagesScroll() {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    shouldAutoScrollRef.current = distanceFromBottom < 120;
+  }
 
   useEffect(() => {
     function handlePhoneBack() {
@@ -2403,7 +2434,7 @@ export default function Home() {
               )}
               </AnimatePresence>
 
-              <div className="relative z-10 min-h-0 flex-1 overflow-y-auto overscroll-contain px-2.5 py-3 md:p-4" onClick={() => { setMediaOpen(false); setEmojiOpen(false); }}>
+              <div ref={scrollContainerRef} onScroll={handleMessagesScroll} className="relative z-10 min-h-0 flex-1 overflow-y-auto overscroll-contain px-2.5 py-3 md:p-4" onClick={() => { setMediaOpen(false); setEmojiOpen(false); }}>
                 {messagesLoading && messages.length === 0 && (
                   <div className={`mx-auto mt-20 max-w-sm text-center text-sm ${muted}`}>
                     Loading message history...
@@ -2609,7 +2640,13 @@ export default function Home() {
                       if (event.key === "Enter") void sendMessage();
                     }}
                   />
-                  <button onClick={() => void sendMessage()} className={`h-11 min-w-[4.5rem] shrink-0 rounded-2xl px-3 font-bold md:h-14 md:px-6 ${isDark ? "bg-violet-400 text-slate-950" : "bg-slate-950 text-white"}`}>Send</button>
+                  <button
+                    onPointerDown={(event) => event.preventDefault()}
+                    onClick={() => void sendMessage()}
+                    className={`h-11 min-w-[4.5rem] shrink-0 rounded-2xl px-3 font-bold md:h-14 md:px-6 ${isDark ? "bg-violet-400 text-slate-950" : "bg-slate-950 text-white"}`}
+                  >
+                    Send
+                  </button>
                 </div>
                 {uploading && <p className={`mt-2 text-xs ${muted}`}>Uploading...</p>}
                 {error && <p className="mt-2 rounded-xl bg-red-500/15 p-2 text-sm text-red-500">{error}</p>}
