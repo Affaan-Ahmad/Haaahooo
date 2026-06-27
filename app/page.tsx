@@ -96,6 +96,7 @@ type JukeboxState = {
 type JukeboxQueueItem = {
   id: string;
   position: number;
+  source: "user" | "auto";
   trackId: string;
   trackUri: string;
   trackName: string;
@@ -362,6 +363,7 @@ export default function Home() {
   const [jukeboxOpen, setJukeboxOpen] = useState(false);
   const [jukeboxState, setJukeboxState] = useState<JukeboxState | null>(null);
   const [jukeboxQueue, setJukeboxQueue] = useState<JukeboxQueueItem[]>([]);
+  const [jukeboxAutoQueue, setJukeboxAutoQueue] = useState<JukeboxQueueItem[]>([]);
   const [jukeboxQuery, setJukeboxQuery] = useState("");
   const [jukeboxResults, setJukeboxResults] = useState<SpotifyTrack[]>([]);
   const [jukeboxSearching, setJukeboxSearching] = useState(false);
@@ -380,6 +382,7 @@ export default function Home() {
   const contentRef = useRef<HTMLDivElement | null>(null);
   const shouldAutoScrollRef = useRef(true);
   const prevConversationRef = useRef<string | undefined>(undefined);
+  const lastAdvanceRef = useRef<string | null>(null);
   const [showScrollButton, setShowScrollButton] = useState(false);
   const messageCacheRef = useRef<Map<string, Message[]>>(new Map());
   const deepLinkHistoryPreparedRef = useRef(false);
@@ -871,6 +874,7 @@ export default function Home() {
     if (!session || !selectedChat) {
       setJukeboxState(null);
       setJukeboxQueue([]);
+      setJukeboxAutoQueue([]);
       setJukeboxOpen(false);
       return;
     }
@@ -969,6 +973,35 @@ export default function Home() {
     shouldAutoScrollRef.current = distanceFromBottom < 120;
     setShowScrollButton(distanceFromBottom > 200);
   }
+
+  // Auto-advance: when a song is about to end, ask the server to advance the
+  // queue (user queue first, then the autoplay queue). The server dedupes by
+  // changedAt, so if both listeners' apps fire, only one advance happens.
+  // Browser timers are throttled when a PWA is backgrounded, so this covers
+  // the case where at least one app is on-screen.
+  useEffect(() => {
+    const s = jukeboxState;
+    if (!s?.isPlaying || !s.trackUri || s.durationMs <= 0) return;
+    const elapsed = Date.now() - new Date(s.changedAt).getTime();
+    const livePos = Math.min(s.durationMs, s.positionMs + Math.max(0, elapsed));
+    // Fire just after the track ends: Spotify has already gaplessly advanced
+    // to the pre-queued track, so this just syncs our state + tops the buffer.
+    const delay = Math.max(0, s.durationMs - livePos + 400);
+    const token = s.changedAt;
+    const id = window.setTimeout(() => {
+      if (lastAdvanceRef.current === token) return;
+      lastAdvanceRef.current = token;
+      void controlJukebox("advance", undefined, undefined, undefined, token);
+    }, delay);
+    return () => window.clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    jukeboxState?.changedAt,
+    jukeboxState?.isPlaying,
+    jukeboxState?.trackUri,
+    jukeboxState?.durationMs,
+    jukeboxState?.positionMs,
+  ]);
 
   useEffect(() => {
     function handlePhoneBack() {
@@ -1224,12 +1257,18 @@ export default function Home() {
       { headers, cache: "no-store" },
     );
     const result = (await response.json().catch(() => null)) as
-      | { state?: JukeboxState | null; queue?: JukeboxQueueItem[]; error?: string }
+      | {
+          state?: JukeboxState | null;
+          queue?: JukeboxQueueItem[];
+          autoQueue?: JukeboxQueueItem[];
+          error?: string;
+        }
       | null;
 
     if (response.ok) {
       setJukeboxState(result?.state ?? null);
       setJukeboxQueue(result?.queue ?? []);
+      setJukeboxAutoQueue(result?.autoQueue ?? []);
     } else {
       setJukeboxStatus(result?.error ?? "Could not load the jukebox.");
     }
@@ -1273,17 +1312,21 @@ export default function Home() {
       | "enqueue"
       | "next"
       | "previous"
-      | "remove",
+      | "remove"
+      | "advance",
     track?: SpotifyTrack,
     positionMs?: number,
     queueId?: string,
+    expectedChangedAt?: string,
   ) {
     if (!selectedChat) return;
     const headers = await spotifyApiHeaders();
     if (!headers) return;
 
-    setJukeboxBusy(true);
-    setJukeboxStatus("");
+    if (action !== "advance") {
+      setJukeboxBusy(true);
+      setJukeboxStatus("");
+    }
 
     const response = await fetch("/api/spotify/jukebox", {
       method: "POST",
@@ -1297,29 +1340,36 @@ export default function Home() {
         ...(track ? { track } : {}),
         ...(typeof positionMs === "number" ? { positionMs } : {}),
         ...(queueId ? { queueId } : {}),
+        ...(expectedChangedAt ? { expectedChangedAt } : {}),
       }),
     });
     const result = (await response.json().catch(() => null)) as
       | {
           state?: JukeboxState | null;
           queue?: JukeboxQueueItem[];
+          autoQueue?: JukeboxQueueItem[];
           error?: string;
           playback?: { connected: number; total: number };
         }
       | null;
-    setJukeboxBusy(false);
+    if (action !== "advance") setJukeboxBusy(false);
 
     if (!response.ok) {
-      setJukeboxStatus(result?.error ?? "The jukebox command failed.");
+      if (action !== "advance") {
+        setJukeboxStatus(result?.error ?? "The jukebox command failed.");
+      }
       return;
     }
 
     setJukeboxState(result?.state ?? null);
     setJukeboxQueue(result?.queue ?? []);
+    setJukeboxAutoQueue(result?.autoQueue ?? []);
     if (track) {
       setJukeboxResults([]);
       setJukeboxQuery("");
     }
+
+    if (action === "advance") return;
 
     if (action === "enqueue") {
       setJukeboxStatus("Added to the queue.");
@@ -2336,12 +2386,9 @@ export default function Home() {
                       busy={jukeboxBusy}
                       isDark={isDark}
                       canNext={
-                        jukeboxState.currentQueueId
-                          ? jukeboxQueue.findIndex(
-                              (item) => item.id === jukeboxState.currentQueueId,
-                            ) <
-                            jukeboxQueue.length - 1
-                          : jukeboxQueue.length > 0
+                        jukeboxQueue.length > 0 ||
+                        jukeboxAutoQueue.length > 0 ||
+                        Boolean(jukeboxState.isPlaying)
                       }
                       onPlayPause={() =>
                         void controlJukebox(jukeboxState.isPlaying ? "pause" : "play")
@@ -2356,53 +2403,82 @@ export default function Home() {
                     </p>
                   )}
 
-                  {(() => {
-                    const currentIndex = jukeboxState?.currentQueueId
-                      ? jukeboxQueue.findIndex(
-                          (item) => item.id === jukeboxState.currentQueueId,
-                        )
-                      : -1;
-                    const upcoming =
-                      currentIndex >= 0
-                        ? jukeboxQueue.slice(currentIndex + 1)
-                        : jukeboxQueue;
-                    if (upcoming.length === 0) return null;
-                    return (
-                      <div className="mb-3">
-                        <p className={`mb-1.5 text-xs font-bold uppercase ${muted}`}>
-                          Up next · {upcoming.length}
-                        </p>
-                        <div className="flex flex-col gap-1">
-                          {upcoming.map((item) => (
-                            <div
-                              key={item.id}
-                              className={`flex items-center gap-2 rounded-xl p-1.5 ${isDark ? "bg-white/5" : "bg-slate-100"}`}
-                            >
-                              {item.imageUrl ? (
-                                <img src={item.imageUrl} alt="" className="h-9 w-9 shrink-0 rounded-md object-cover" />
-                              ) : (
-                                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-[#1DB954] text-sm text-black">♫</div>
-                              )}
-                              <span className="min-w-0 flex-1">
-                                <span className="block truncate text-xs font-bold">{item.trackName}</span>
-                                <span className={`block truncate text-[11px] ${muted}`}>{item.artistName}</span>
-                              </span>
-                              <button
-                                type="button"
-                                disabled={jukeboxBusy}
-                                onClick={() => void controlJukebox("remove", undefined, undefined, item.id)}
-                                className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-sm disabled:opacity-50 ${isDark ? "hover:bg-white/15" : "hover:bg-slate-200"}`}
-                                aria-label="Remove from queue"
-                                title="Remove from queue"
+                  {(jukeboxQueue.length > 0 || jukeboxAutoQueue.length > 0) && (
+                    <div className="mb-3 space-y-3">
+                      {jukeboxQueue.length > 0 && (
+                        <div>
+                          <p className={`mb-1.5 text-xs font-bold uppercase ${muted}`}>
+                            Up next · {jukeboxQueue.length}
+                          </p>
+                          <div className="flex flex-col gap-1">
+                            {jukeboxQueue.map((item) => (
+                              <div
+                                key={item.id}
+                                className={`flex items-center gap-2 rounded-xl p-1.5 ${isDark ? "bg-white/5" : "bg-slate-100"}`}
                               >
-                                ×
-                              </button>
-                            </div>
-                          ))}
+                                {item.imageUrl ? (
+                                  <img src={item.imageUrl} alt="" className="h-9 w-9 shrink-0 rounded-md object-cover" />
+                                ) : (
+                                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-[#1DB954] text-sm text-black">♫</div>
+                                )}
+                                <span className="min-w-0 flex-1">
+                                  <span className="block truncate text-xs font-bold">{item.trackName}</span>
+                                  <span className={`block truncate text-[11px] ${muted}`}>{item.artistName}</span>
+                                </span>
+                                <button
+                                  type="button"
+                                  disabled={jukeboxBusy}
+                                  onClick={() => void controlJukebox("remove", undefined, undefined, item.id)}
+                                  className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-sm disabled:opacity-50 ${isDark ? "hover:bg-white/15" : "hover:bg-slate-200"}`}
+                                  aria-label="Remove from queue"
+                                  title="Remove from queue"
+                                >
+                                  ×
+                                </button>
+                              </div>
+                            ))}
+                          </div>
                         </div>
-                      </div>
-                    );
-                  })()}
+                      )}
+
+                      {jukeboxAutoQueue.length > 0 && (
+                        <div>
+                          <p className={`mb-1.5 flex items-center gap-1.5 text-xs font-bold uppercase ${muted}`}>
+                            <span>✨ Autoplay radio</span>
+                            <span className="font-normal normal-case opacity-70">· based on the current song</span>
+                          </p>
+                          <div className="flex flex-col gap-1">
+                            {jukeboxAutoQueue.slice(0, 5).map((item) => (
+                              <div
+                                key={item.id}
+                                className={`flex items-center gap-2 rounded-xl p-1.5 ${isDark ? "bg-violet-400/10" : "bg-violet-50"}`}
+                              >
+                                {item.imageUrl ? (
+                                  <img src={item.imageUrl} alt="" className="h-9 w-9 shrink-0 rounded-md object-cover" />
+                                ) : (
+                                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-violet-400 text-sm text-black">♫</div>
+                                )}
+                                <span className="min-w-0 flex-1">
+                                  <span className="block truncate text-xs font-bold">{item.trackName}</span>
+                                  <span className={`block truncate text-[11px] ${muted}`}>{item.artistName}</span>
+                                </span>
+                                <button
+                                  type="button"
+                                  disabled={jukeboxBusy}
+                                  onClick={() => void controlJukebox("remove", undefined, undefined, item.id)}
+                                  className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-sm disabled:opacity-50 ${isDark ? "hover:bg-white/15" : "hover:bg-slate-200"}`}
+                                  aria-label="Skip this radio pick"
+                                  title="Remove"
+                                >
+                                  ×
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   <div className="mb-2 flex gap-2">
                     <input
