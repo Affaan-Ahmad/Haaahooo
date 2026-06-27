@@ -377,8 +377,10 @@ export default function Home() {
 
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const contentRef = useRef<HTMLDivElement | null>(null);
   const shouldAutoScrollRef = useRef(true);
   const prevConversationRef = useRef<string | undefined>(undefined);
+  const [showScrollButton, setShowScrollButton] = useState(false);
   const messageCacheRef = useRef<Map<string, Message[]>>(new Map());
   const deepLinkHistoryPreparedRef = useRef(false);
   const gestureRef = useRef<{
@@ -912,7 +914,10 @@ export default function Home() {
     const conversationId = selectedChat?.conversation_id;
     const conversationChanged = prevConversationRef.current !== conversationId;
     prevConversationRef.current = conversationId;
-    if (conversationChanged) shouldAutoScrollRef.current = true;
+    if (conversationChanged) {
+      shouldAutoScrollRef.current = true;
+      setShowScrollButton(false);
+    }
 
     // Don't yank the view down if the user has scrolled up to read history.
     if (!conversationChanged && !shouldAutoScrollRef.current) return;
@@ -930,11 +935,39 @@ export default function Home() {
     };
   }, [messages, selectedChat?.conversation_id]);
 
+  // Re-pin to the bottom whenever the message content grows (late-loading
+  // images, media, or async message batches) — but only while the user is
+  // meant to be following the latest messages.
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    const content = contentRef.current;
+    if (!container || !content || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      if (shouldAutoScrollRef.current) {
+        container.scrollTop = container.scrollHeight;
+      }
+    });
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, [selectedChat?.conversation_id]);
+
+  function scrollToBottom(smooth = true) {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    el.scrollTo({
+      top: el.scrollHeight,
+      behavior: smooth ? "smooth" : "auto",
+    });
+    shouldAutoScrollRef.current = true;
+    setShowScrollButton(false);
+  }
+
   function handleMessagesScroll() {
     const el = scrollContainerRef.current;
     if (!el) return;
     const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
     shouldAutoScrollRef.current = distanceFromBottom < 120;
+    setShowScrollButton(distanceFromBottom > 200);
   }
 
   useEffect(() => {
@@ -1554,6 +1587,8 @@ export default function Home() {
     const replyToMessageId = replyingTo?.id ?? null;
     setText("");
     setError("");
+    shouldAutoScrollRef.current = true;
+    setShowScrollButton(false);
 
     const { error: messageError } = await supabase.from("messages").insert({
       conversation_id: selectedChat.conversation_id,
@@ -2435,6 +2470,7 @@ export default function Home() {
               </AnimatePresence>
 
               <div ref={scrollContainerRef} onScroll={handleMessagesScroll} className="relative z-10 min-h-0 flex-1 overflow-y-auto overscroll-contain px-2.5 py-3 md:p-4" onClick={() => { setMediaOpen(false); setEmojiOpen(false); }}>
+                <div ref={contentRef}>
                 {messagesLoading && messages.length === 0 && (
                   <div className={`mx-auto mt-20 max-w-sm text-center text-sm ${muted}`}>
                     Loading message history...
@@ -2570,7 +2606,26 @@ export default function Home() {
                   );
                 })}
                 <div ref={bottomRef} />
+                </div>
               </div>
+
+              <AnimatePresence>
+                {showScrollButton && (
+                  <motion.button
+                    type="button"
+                    onClick={() => scrollToBottom(true)}
+                    initial={{ opacity: 0, scale: 0.8, y: 8 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.8, y: 8 }}
+                    transition={{ type: "spring", stiffness: 400, damping: 26 }}
+                    className={`absolute bottom-24 right-4 z-30 flex h-11 w-11 items-center justify-center rounded-full border text-lg shadow-lg backdrop-blur-md md:bottom-28 ${isDark ? "border-white/15 bg-slate-900/80 text-white" : "border-slate-200 bg-white/90 text-slate-900"}`}
+                    aria-label="Scroll to latest messages"
+                    title="Jump to latest"
+                  >
+                    ↓
+                  </motion.button>
+                )}
+              </AnimatePresence>
 
               <footer className={`mobile-safe-bottom relative z-10 border-t px-2.5 py-2 md:p-4 ${isDark ? "border-white/10" : "border-slate-200"}`}>
                 {replyingTo && (
