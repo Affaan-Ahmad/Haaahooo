@@ -129,6 +129,7 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     ok: true,
     seedTrack: { name: current.track_name, artist: current.artist_name },
+    source: report.source,
     market: report.market,
     seedTrackOk: report.seedTrackOk,
     artistId: report.artistId,

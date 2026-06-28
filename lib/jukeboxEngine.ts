@@ -220,21 +220,128 @@ async function getMarket(token: string) {
   return typeof c === "string" && c.length === 2 ? c : "US";
 }
 
-/** Track search URL WITHOUT a market param (matches the app's working search;
- *  adding market makes Spotify reject some tokens with a 400). */
-function trackSearchUrl(q: string) {
+/** Track search URL WITHOUT a market param (matches the app's working search).
+ *  limit must stay small — this app's Spotify access rejects limit=20
+ *  ("Invalid limit"); 8 is proven to work. */
+function trackSearchUrl(q: string, limit = 8) {
   const u = new URL("https://api.spotify.com/v1/search");
-  u.search = new URLSearchParams({ q, type: "track", limit: "20" }).toString();
+  u.search = new URLSearchParams({
+    q,
+    type: "track",
+    limit: String(limit),
+  }).toString();
   return u.toString();
 }
 
+/* ----------------------- Last.fm similarity source ----------------------- */
+
+async function lastfmGet(params: Record<string, string>) {
+  const key = process.env.LASTFM_API_KEY;
+  if (!key) return null;
+  try {
+    const u = new URL("https://ws.audioscrobbler.com/2.0/");
+    u.search = new URLSearchParams({
+      ...params,
+      api_key: key,
+      format: "json",
+    }).toString();
+    const res = await fetch(u.toString(), { cache: "no-store" });
+    if (!res.ok) return null;
+    return (await res.json().catch(() => null)) as Record<string, unknown> | null;
+  } catch {
+    return null;
+  }
+}
+
+type NamePair = { name: string; artist: string };
+
+/** Ask Last.fm for songs similar to the seed; fall back to similar artists'
+ *  top tracks. Returns plain {name, artist} pairs to resolve on Spotify. */
+async function lastfmSimilarNames(
+  trackName: string,
+  artistName: string,
+): Promise<NamePair[]> {
+  const out: NamePair[] = [];
+  const push = (name?: unknown, artist?: unknown) => {
+    if (typeof name === "string" && typeof artist === "string" && name && artist) {
+      out.push({ name, artist });
+    }
+  };
+
+  const sim = await lastfmGet({
+    method: "track.getsimilar",
+    track: trackName,
+    artist: artistName,
+    autocorrect: "1",
+    limit: "50",
+  });
+  const simTracks =
+    ((sim?.similartracks as { track?: unknown[] } | undefined)?.track as
+      | Array<{ name?: string; artist?: { name?: string } }>
+      | undefined) ?? [];
+  simTracks.forEach((t) => push(t.name, t.artist?.name));
+
+  if (out.length < 5) {
+    // Fallback: similar artists -> their top tracks (plus the seed artist's).
+    const sa = await lastfmGet({
+      method: "artist.getsimilar",
+      artist: artistName,
+      autocorrect: "1",
+      limit: "8",
+    });
+    const artists =
+      ((sa?.similarartists as { artist?: unknown[] } | undefined)?.artist as
+        | Array<{ name?: string }>
+        | undefined) ?? [];
+    const names = [artistName, ...artists.map((a) => a.name ?? "")]
+      .filter(Boolean)
+      .slice(0, 6);
+    for (const a of names) {
+      const tt = await lastfmGet({
+        method: "artist.gettoptracks",
+        artist: a,
+        autocorrect: "1",
+        limit: "8",
+      });
+      const top =
+        ((tt?.toptracks as { track?: unknown[] } | undefined)?.track as
+          | Array<{ name?: string; artist?: { name?: string } }>
+          | undefined) ?? [];
+      top.forEach((t) => push(t.name, t.artist?.name ?? a));
+    }
+  }
+
+  return out;
+}
+
+/** Resolve a {name, artist} to a real Spotify track via search (limit 1). */
+async function resolveSpotifyTrack(
+  token: string,
+  pair: NamePair,
+): Promise<TrackInput | null> {
+  const { json } = await spotifyFetch(
+    token,
+    trackSearchUrl(`${pair.name} ${pair.artist}`, 1),
+  );
+  const item = (json?.tracks as { items?: SpotifyApiTrack[] } | undefined)
+    ?.items?.[0];
+  return item ? mapApiTrack(item) : null;
+}
+
 export type RadioReport = {
+  source: "lastfm" | "spotify-artist" | "none";
   market: string;
   seedTrackOk: boolean;
   artistId: string | null;
   artistName: string | null;
   genres: string[];
-  counts: { topTracks: number; genreSearch: number; artistSearch: number };
+  counts: {
+    lastfmNames: number;
+    lastfmResolved: number;
+    topTracks: number;
+    genreSearch: number;
+    artistSearch: number;
+  };
   notes: string[];
   candidates: Map<string, TrackInput>;
 };
@@ -259,7 +366,14 @@ export async function gatherCandidates(
     }
   };
 
-  const counts = { topTracks: 0, genreSearch: 0, artistSearch: 0 };
+  const counts = {
+    lastfmNames: 0,
+    lastfmResolved: 0,
+    topTracks: 0,
+    genreSearch: 0,
+    artistSearch: 0,
+  };
+  let source: RadioReport["source"] = "none";
   let artistId: string | null = null;
   let artistName: string | null = null;
   let genres: string[] = [];
@@ -275,7 +389,9 @@ export async function gatherCandidates(
 
   if (!seedRow.track_id) {
     notes.push("no seed track id");
-    return { market, seedTrackOk: false, artistId, artistName, genres, counts, notes, candidates };
+    return {
+      source, market, seedTrackOk: false, artistId, artistName, genres, counts, notes, candidates,
+    };
   }
 
   const trackRes = await spotifyFetch(
@@ -286,56 +402,79 @@ export async function gatherCandidates(
   const track = trackRes.json as SpotifyApiTrack | null;
   const trackArtists = (track?.artists ?? []).filter((a) => a?.name);
   artistId = trackArtists[0]?.id ?? null;
-  artistName = trackArtists[0]?.name ?? null;
+  artistName = trackArtists[0]?.name ?? seedRow.artist_name ?? null;
+  const seedName = track?.name ?? seedRow.track_name ?? "";
 
-  // Source 1: artist top-tracks (often 403 for restricted apps — best effort).
-  if (artistId) {
-    const top = await spotifyFetch(
-      token,
-      `https://api.spotify.com/v1/artists/${artistId}/top-tracks?market=${market}`,
-    );
-    noteFail("top-tracks", top);
-    const topTracks = (top.json?.tracks as SpotifyApiTrack[] | undefined) ?? [];
-    topTracks.forEach(consider);
-    counts.topTracks = topTracks.length;
-
-    // Genres for a keyword search — many artists have none.
-    const artistRes = await spotifyFetch(
-      token,
-      `https://api.spotify.com/v1/artists/${artistId}`,
-    );
-    noteFail("artists/{id}", artistRes);
-    genres = ((artistRes.json?.genres as string[] | undefined) ?? []).slice(0, 2);
-  }
-
-  // Source 2: plain-keyword genre search (no market).
-  for (const genre of genres) {
-    const search = await spotifyFetch(token, trackSearchUrl(genre));
-    noteFail("search(genre)", search);
-    const items =
-      (search.json?.tracks as { items?: SpotifyApiTrack[] } | undefined)?.items ?? [];
-    items.forEach(consider);
-    counts.genreSearch += items.length;
-  }
-
-  // Source 3 (the main one when catalog endpoints are restricted): search each
-  // artist on the seed track by name to pull more of their catalog.
-  const namesToSearch = [
-    ...new Set(trackArtists.map((a) => a.name!).filter(Boolean)),
-  ].slice(0, 3);
-  for (const name of namesToSearch) {
-    const search = await spotifyFetch(token, trackSearchUrl(name));
-    if (search.status !== 200) {
-      noteFail(`search(${name})`, search);
-      continue;
+  // ---- Primary source: Last.fm similarity, resolved on Spotify ----------
+  if (process.env.LASTFM_API_KEY && artistName && seedName) {
+    const pairs = await lastfmSimilarNames(seedName, artistName);
+    counts.lastfmNames = pairs.length;
+    if (pairs.length === 0) notes.push("lastfm returned no similar tracks");
+    // Resolve until we have a healthy batch (cap attempts to limit API calls).
+    const shuffled = pairs.sort(() => Math.random() - 0.5);
+    let attempts = 0;
+    for (const pair of shuffled) {
+      if (candidates.size >= AUTO_BATCH || attempts >= 24) break;
+      attempts++;
+      const resolved = await resolveSpotifyTrack(token, pair);
+      if (resolved?.id && resolved.id !== seedRow.track_id) {
+        candidates.set(resolved.id, resolved);
+      }
     }
-    const items =
-      (search.json?.tracks as { items?: SpotifyApiTrack[] } | undefined)?.items ?? [];
-    items.forEach(consider);
-    counts.artistSearch += items.length;
+    counts.lastfmResolved = candidates.size;
+    if (candidates.size > 0) source = "lastfm";
+  } else if (!process.env.LASTFM_API_KEY) {
+    notes.push("LASTFM_API_KEY not set — using same-artist fallback");
+  }
+
+  // ---- Fallback: same-artist Spotify search (only if Last.fm gave nothing)
+  if (candidates.size === 0) {
+    if (artistId) {
+      const top = await spotifyFetch(
+        token,
+        `https://api.spotify.com/v1/artists/${artistId}/top-tracks?market=${market}`,
+      );
+      noteFail("top-tracks", top);
+      const topTracks = (top.json?.tracks as SpotifyApiTrack[] | undefined) ?? [];
+      topTracks.forEach(consider);
+      counts.topTracks = topTracks.length;
+
+      const artistRes = await spotifyFetch(
+        token,
+        `https://api.spotify.com/v1/artists/${artistId}`,
+      );
+      noteFail("artists/{id}", artistRes);
+      genres = ((artistRes.json?.genres as string[] | undefined) ?? []).slice(0, 2);
+    }
+
+    for (const genre of genres) {
+      const search = await spotifyFetch(token, trackSearchUrl(genre));
+      noteFail("search(genre)", search);
+      const items =
+        (search.json?.tracks as { items?: SpotifyApiTrack[] } | undefined)?.items ?? [];
+      items.forEach(consider);
+      counts.genreSearch += items.length;
+    }
+
+    const namesToSearch = [
+      ...new Set(trackArtists.map((a) => a.name!).filter(Boolean)),
+    ].slice(0, 3);
+    for (const name of namesToSearch) {
+      const search = await spotifyFetch(token, trackSearchUrl(name));
+      if (search.status !== 200) {
+        noteFail(`search(${name})`, search);
+        continue;
+      }
+      const items =
+        (search.json?.tracks as { items?: SpotifyApiTrack[] } | undefined)?.items ?? [];
+      items.forEach(consider);
+      counts.artistSearch += items.length;
+    }
+    if (candidates.size > 0) source = "spotify-artist";
   }
 
   return {
+    source,
     market,
     seedTrackOk: trackRes.status === 200,
     artistId,
