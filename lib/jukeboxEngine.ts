@@ -168,19 +168,6 @@ export async function nextPosition(conversationId: string) {
 
 /* -------------------- homemade "radio" recommender -------------------- */
 
-async function spotifyJson(token: string, url: string) {
-  try {
-    const res = await fetch(url, {
-      headers: { Authorization: `Bearer ${token}` },
-      cache: "no-store",
-    });
-    if (!res.ok) return null;
-    return (await res.json().catch(() => null)) as Record<string, unknown> | null;
-  } catch {
-    return null;
-  }
-}
-
 type SpotifyApiTrack = {
   id?: string;
   uri?: string;
@@ -204,13 +191,51 @@ function mapApiTrack(t: SpotifyApiTrack): TrackInput | null {
   };
 }
 
-export async function generateRecommendations(
-  conversationId: string,
-  seedRow: JukeboxRow,
-  token: string,
-) {
-  if (!seedRow.track_id) return 0;
+async function spotifyFetch(token: string, url: string) {
+  try {
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
+    });
+    const json = (await res.json().catch(() => null)) as
+      | Record<string, unknown>
+      | null;
+    return { status: res.status, json };
+  } catch {
+    return { status: 0, json: null };
+  }
+}
 
+/** ISO country code for market params. Falls back to US if unavailable. */
+async function getMarket(token: string) {
+  const { json } = await spotifyFetch(token, "https://api.spotify.com/v1/me");
+  const c = json?.country;
+  return typeof c === "string" && c.length === 2 ? c : "US";
+}
+
+export type RadioReport = {
+  market: string;
+  seedTrackOk: boolean;
+  artistId: string | null;
+  artistName: string | null;
+  genres: string[];
+  counts: { topTracks: number; genreSearch: number; artistSearch: number };
+  notes: string[];
+  candidates: Map<string, TrackInput>;
+};
+
+/**
+ * Gather candidate tracks for the autoplay radio from endpoints that still
+ * work post-2024: the seed's artist top-tracks, plain-keyword genre search,
+ * and an artist-name search fallback. Returns a report (for debugging) plus
+ * the deduped candidate map.
+ */
+export async function gatherCandidates(
+  token: string,
+  seedRow: JukeboxRow,
+): Promise<RadioReport> {
+  const market = await getMarket(token);
+  const notes: string[] = [];
   const candidates = new Map<string, TrackInput>();
   const consider = (t: SpotifyApiTrack | undefined) => {
     const mapped = t ? mapApiTrack(t) : null;
@@ -219,36 +244,92 @@ export async function generateRecommendations(
     }
   };
 
-  const track = (await spotifyJson(
+  const counts = { topTracks: 0, genreSearch: 0, artistSearch: 0 };
+  let artistId: string | null = null;
+  let artistName: string | null = null;
+  let genres: string[] = [];
+
+  if (!seedRow.track_id) {
+    notes.push("no seed track id");
+    return { market, seedTrackOk: false, artistId, artistName, genres, counts, notes, candidates };
+  }
+
+  const trackRes = await spotifyFetch(
     token,
-    `https://api.spotify.com/v1/tracks/${seedRow.track_id}`,
-  )) as (Record<string, unknown> & SpotifyApiTrack) | null;
-  const artistId = track?.artists?.[0]?.id;
+    `https://api.spotify.com/v1/tracks/${seedRow.track_id}?market=${market}`,
+  );
+  if (trackRes.status !== 200) notes.push(`tracks/{id} -> ${trackRes.status}`);
+  const track = trackRes.json as SpotifyApiTrack | null;
+  artistId = track?.artists?.[0]?.id ?? null;
+  artistName = track?.artists?.[0]?.name ?? null;
 
   if (artistId) {
-    const top = await spotifyJson(
+    const top = await spotifyFetch(
       token,
-      `https://api.spotify.com/v1/artists/${artistId}/top-tracks?market=from_token`,
+      `https://api.spotify.com/v1/artists/${artistId}/top-tracks?market=${market}`,
     );
-    (top?.tracks as SpotifyApiTrack[] | undefined)?.forEach(consider);
+    if (top.status !== 200) notes.push(`top-tracks -> ${top.status}`);
+    const topTracks = (top.json?.tracks as SpotifyApiTrack[] | undefined) ?? [];
+    topTracks.forEach(consider);
+    counts.topTracks = topTracks.length;
 
-    const artist = await spotifyJson(
+    const artistRes = await spotifyFetch(
       token,
       `https://api.spotify.com/v1/artists/${artistId}`,
     );
-    const genres = ((artist?.genres as string[] | undefined) ?? []).slice(0, 2);
+    if (artistRes.status !== 200) notes.push(`artists/{id} -> ${artistRes.status}`);
+    genres = ((artistRes.json?.genres as string[] | undefined) ?? []).slice(0, 2);
+
     for (const genre of genres) {
-      const q = encodeURIComponent(`genre:"${genre}"`);
-      const search = await spotifyJson(
+      const q = encodeURIComponent(genre);
+      const search = await spotifyFetch(
         token,
-        `https://api.spotify.com/v1/search?type=track&limit=20&market=from_token&q=${q}`,
+        `https://api.spotify.com/v1/search?type=track&limit=20&market=${market}&q=${q}`,
       );
-      const items = (search?.tracks as { items?: SpotifyApiTrack[] } | undefined)
-        ?.items;
-      items?.forEach(consider);
+      if (search.status !== 200) notes.push(`search(genre) -> ${search.status}`);
+      const items =
+        (search.json?.tracks as { items?: SpotifyApiTrack[] } | undefined)?.items ?? [];
+      items.forEach(consider);
+      counts.genreSearch += items.length;
     }
+  } else {
+    notes.push("seed track had no artist id");
   }
 
+  // Fallback / extra variety: search by the artist's name.
+  if (artistName && (genres.length === 0 || candidates.size < 5)) {
+    const q = encodeURIComponent(artistName);
+    const search = await spotifyFetch(
+      token,
+      `https://api.spotify.com/v1/search?type=track&limit=20&market=${market}&q=${q}`,
+    );
+    if (search.status !== 200) notes.push(`search(artist) -> ${search.status}`);
+    const items =
+      (search.json?.tracks as { items?: SpotifyApiTrack[] } | undefined)?.items ?? [];
+    items.forEach(consider);
+    counts.artistSearch = items.length;
+  }
+
+  return {
+    market,
+    seedTrackOk: trackRes.status === 200,
+    artistId,
+    artistName,
+    genres,
+    counts,
+    notes,
+    candidates,
+  };
+}
+
+export async function generateRecommendations(
+  conversationId: string,
+  seedRow: JukeboxRow,
+  token: string,
+) {
+  if (!seedRow.track_id) return 0;
+
+  const { candidates } = await gatherCandidates(token, seedRow);
   if (candidates.size === 0) return 0;
 
   const existing = await loadQueue(conversationId);
