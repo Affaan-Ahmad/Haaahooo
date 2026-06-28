@@ -95,6 +95,37 @@ export async function GET(request: NextRequest) {
     artists: t.artists,
   }));
 
+  // Control: replicate the app's WORKING song-search exactly (simple query,
+  // limit 8, no market). Isolates whether search works at all for this token.
+  let controlSearch: { status: number; count: number; message: string | null } = {
+    status: 0,
+    count: 0,
+    message: null,
+  };
+  try {
+    const u = new URL("https://api.spotify.com/v1/search");
+    u.search = new URLSearchParams({ q: "love", type: "track", limit: "8" }).toString();
+    const r = await fetch(u, {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
+    });
+    const j = (await r.json().catch(() => null)) as {
+      tracks?: { items?: unknown[] };
+      error?: { message?: string };
+    } | null;
+    controlSearch = {
+      status: r.status,
+      count: j?.tracks?.items?.length ?? 0,
+      message: j?.error?.message ?? null,
+    };
+  } catch (e) {
+    controlSearch = {
+      status: 0,
+      count: 0,
+      message: e instanceof Error ? e.message : "fetch failed",
+    };
+  }
+
   return NextResponse.json({
     ok: true,
     seedTrack: { name: current.track_name, artist: current.artist_name },
@@ -105,6 +136,7 @@ export async function GET(request: NextRequest) {
     genres: report.genres,
     counts: report.counts,
     totalCandidates: report.candidates.size,
+    controlSearch,
     notes: report.notes,
     sample,
   });

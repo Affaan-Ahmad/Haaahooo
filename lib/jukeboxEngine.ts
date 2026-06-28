@@ -200,9 +200,16 @@ async function spotifyFetch(token: string, url: string) {
     const json = (await res.json().catch(() => null)) as
       | Record<string, unknown>
       | null;
-    return { status: res.status, json };
-  } catch {
-    return { status: 0, json: null };
+    const err = json?.error as { message?: string } | string | undefined;
+    const message =
+      typeof err === "string" ? err : err?.message ?? null;
+    return { status: res.status, json, message };
+  } catch (e) {
+    return {
+      status: 0,
+      json: null,
+      message: e instanceof Error ? e.message : "fetch failed",
+    };
   }
 }
 
@@ -257,6 +264,15 @@ export async function gatherCandidates(
   let artistName: string | null = null;
   let genres: string[] = [];
 
+  const noteFail = (
+    label: string,
+    res: { status: number; message?: string | null },
+  ) => {
+    if (res.status !== 200) {
+      notes.push(`${label} -> ${res.status}${res.message ? `: ${res.message}` : ""}`);
+    }
+  };
+
   if (!seedRow.track_id) {
     notes.push("no seed track id");
     return { market, seedTrackOk: false, artistId, artistName, genres, counts, notes, candidates };
@@ -266,7 +282,7 @@ export async function gatherCandidates(
     token,
     `https://api.spotify.com/v1/tracks/${seedRow.track_id}?market=${market}`,
   );
-  if (trackRes.status !== 200) notes.push(`tracks/{id} -> ${trackRes.status}`);
+  noteFail("tracks/{id}", trackRes);
   const track = trackRes.json as SpotifyApiTrack | null;
   const trackArtists = (track?.artists ?? []).filter((a) => a?.name);
   artistId = trackArtists[0]?.id ?? null;
@@ -278,7 +294,7 @@ export async function gatherCandidates(
       token,
       `https://api.spotify.com/v1/artists/${artistId}/top-tracks?market=${market}`,
     );
-    if (top.status !== 200) notes.push(`top-tracks -> ${top.status}`);
+    noteFail("top-tracks", top);
     const topTracks = (top.json?.tracks as SpotifyApiTrack[] | undefined) ?? [];
     topTracks.forEach(consider);
     counts.topTracks = topTracks.length;
@@ -288,14 +304,14 @@ export async function gatherCandidates(
       token,
       `https://api.spotify.com/v1/artists/${artistId}`,
     );
-    if (artistRes.status !== 200) notes.push(`artists/{id} -> ${artistRes.status}`);
+    noteFail("artists/{id}", artistRes);
     genres = ((artistRes.json?.genres as string[] | undefined) ?? []).slice(0, 2);
   }
 
   // Source 2: plain-keyword genre search (no market).
   for (const genre of genres) {
     const search = await spotifyFetch(token, trackSearchUrl(genre));
-    if (search.status !== 200) notes.push(`search(genre) -> ${search.status}`);
+    noteFail("search(genre)", search);
     const items =
       (search.json?.tracks as { items?: SpotifyApiTrack[] } | undefined)?.items ?? [];
     items.forEach(consider);
@@ -310,7 +326,7 @@ export async function gatherCandidates(
   for (const name of namesToSearch) {
     const search = await spotifyFetch(token, trackSearchUrl(name));
     if (search.status !== 200) {
-      notes.push(`search(artist) -> ${search.status}`);
+      noteFail(`search(${name})`, search);
       continue;
     }
     const items =
