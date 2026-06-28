@@ -775,7 +775,11 @@ async function maybeRefill(conversationId: string, seed: JukeboxRow) {
 export async function advanceJukebox(
   conversationId: string,
   userId: string,
-  options: { expectedChangedAt?: string; requireEnded?: boolean } = {},
+  options: {
+    expectedChangedAt?: string;
+    requireEnded?: boolean;
+    forcePlay?: boolean;
+  } = {},
 ) {
   const { data } = await supabaseAdmin
     .from("conversation_jukebox")
@@ -817,8 +821,15 @@ export async function advanceJukebox(
 
   let result;
   if (buffered) {
-    // Spotify is already playing it — just sync our row (no replay).
-    result = await setCurrent(conversationId, buffered, userId, false);
+    // On a natural song-end, Spotify already advanced to this via the
+    // pre-queue, so we sync without replaying. On a MANUAL skip the current
+    // song is still playing, so we must actually start the buffered track.
+    result = await setCurrent(
+      conversationId,
+      buffered,
+      userId,
+      options.forcePlay ?? false,
+    );
   } else {
     // Nothing was buffered — pick next and interrupt-play (may not be gapless).
     let { next } = await pickNextUnplayed(conversationId);

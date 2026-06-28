@@ -158,7 +158,9 @@ export async function POST(request: NextRequest) {
       if (!existing?.track_uri) {
         return NextResponse.json({ error: "Nothing is playing." }, { status: 400 });
       }
-      const result = await advanceJukebox(conversationId, user.id, {});
+      const result = await advanceJukebox(conversationId, user.id, {
+        forcePlay: true,
+      });
       return respond(result.advanced ? result.playback : undefined);
     }
 
