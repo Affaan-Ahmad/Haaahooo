@@ -364,6 +364,7 @@ export default function Home() {
   const [jukeboxState, setJukeboxState] = useState<JukeboxState | null>(null);
   const [jukeboxQueue, setJukeboxQueue] = useState<JukeboxQueueItem[]>([]);
   const [jukeboxAutoQueue, setJukeboxAutoQueue] = useState<JukeboxQueueItem[]>([]);
+  const [queueView, setQueueView] = useState<"none" | "user" | "auto">("none");
   const [jukeboxQuery, setJukeboxQuery] = useState("");
   const [jukeboxResults, setJukeboxResults] = useState<SpotifyTrack[]>([]);
   const [jukeboxSearching, setJukeboxSearching] = useState(false);
@@ -875,6 +876,7 @@ export default function Home() {
       setJukeboxState(null);
       setJukeboxQueue([]);
       setJukeboxAutoQueue([]);
+      setQueueView("none");
       setJukeboxOpen(false);
       return;
     }
@@ -2429,14 +2431,50 @@ export default function Home() {
                   )}
 
                   {(jukeboxQueue.length > 0 || jukeboxAutoQueue.length > 0) && (
-                    <div className="mb-3 space-y-3">
-                      {jukeboxQueue.length > 0 && (
-                        <div>
-                          <p className={`mb-1.5 text-xs font-bold uppercase ${muted}`}>
-                            Up next · {jukeboxQueue.length}
-                          </p>
-                          <div className="flex flex-col gap-1">
-                            {jukeboxQueue.map((item) => (
+                    <div className="mb-3">
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setQueueView((v) => (v === "user" ? "none" : "user"))
+                          }
+                          className={`flex flex-1 items-center justify-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-bold transition ${
+                            queueView === "user"
+                              ? "bg-[#1DB954] text-black"
+                              : isDark
+                                ? "bg-white/5 hover:bg-white/10"
+                                : "bg-slate-100 hover:bg-slate-200"
+                          }`}
+                          aria-expanded={queueView === "user"}
+                        >
+                          Your queue · {jukeboxQueue.length}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setQueueView((v) => (v === "auto" ? "none" : "auto"))
+                          }
+                          className={`flex flex-1 items-center justify-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-bold transition ${
+                            queueView === "auto"
+                              ? "bg-violet-400 text-black"
+                              : isDark
+                                ? "bg-white/5 hover:bg-white/10"
+                                : "bg-slate-100 hover:bg-slate-200"
+                          }`}
+                          aria-expanded={queueView === "auto"}
+                        >
+                          ✨ Recommended · {jukeboxAutoQueue.length}
+                        </button>
+                      </div>
+
+                      {queueView === "user" && (
+                        <div className="mt-2 flex flex-col gap-1">
+                          {jukeboxQueue.length === 0 ? (
+                            <p className={`px-1 py-2 text-center text-[11px] ${muted}`}>
+                              Nothing queued yet — search below to add songs.
+                            </p>
+                          ) : (
+                            jukeboxQueue.map((item) => (
                               <div
                                 key={item.id}
                                 className={`flex items-center gap-2 rounded-xl p-1.5 ${isDark ? "bg-white/5" : "bg-slate-100"}`}
@@ -2461,44 +2499,49 @@ export default function Home() {
                                   ×
                                 </button>
                               </div>
-                            ))}
-                          </div>
+                            ))
+                          )}
                         </div>
                       )}
 
-                      {jukeboxAutoQueue.length > 0 && (
-                        <div>
-                          <p className={`mb-1.5 flex items-center gap-1.5 text-xs font-bold uppercase ${muted}`}>
-                            <span>✨ Autoplay radio</span>
-                            <span className="font-normal normal-case opacity-70">· based on the current song</span>
+                      {queueView === "auto" && (
+                        <div className="mt-2">
+                          <p className={`mb-1.5 px-1 text-[11px] ${muted}`}>
+                            Based on the current song — plays when your queue is empty.
                           </p>
                           <div className="flex flex-col gap-1">
-                            {jukeboxAutoQueue.slice(0, 5).map((item) => (
-                              <div
-                                key={item.id}
-                                className={`flex items-center gap-2 rounded-xl p-1.5 ${isDark ? "bg-violet-400/10" : "bg-violet-50"}`}
-                              >
-                                {item.imageUrl ? (
-                                  <img src={item.imageUrl} alt="" className="h-9 w-9 shrink-0 rounded-md object-cover" />
-                                ) : (
-                                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-violet-400 text-sm text-black">♫</div>
-                                )}
-                                <span className="min-w-0 flex-1">
-                                  <span className="block truncate text-xs font-bold">{item.trackName}</span>
-                                  <span className={`block truncate text-[11px] ${muted}`}>{item.artistName}</span>
-                                </span>
-                                <button
-                                  type="button"
-                                  disabled={jukeboxBusy}
-                                  onClick={() => void controlJukebox("remove", undefined, undefined, item.id)}
-                                  className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-sm disabled:opacity-50 ${isDark ? "hover:bg-white/15" : "hover:bg-slate-200"}`}
-                                  aria-label="Skip this radio pick"
-                                  title="Remove"
+                            {jukeboxAutoQueue.length === 0 ? (
+                              <p className={`px-1 py-2 text-center text-[11px] ${muted}`}>
+                                Building recommendations…
+                              </p>
+                            ) : (
+                              jukeboxAutoQueue.slice(0, 8).map((item) => (
+                                <div
+                                  key={item.id}
+                                  className={`flex items-center gap-2 rounded-xl p-1.5 ${isDark ? "bg-violet-400/10" : "bg-violet-50"}`}
                                 >
-                                  ×
-                                </button>
-                              </div>
-                            ))}
+                                  {item.imageUrl ? (
+                                    <img src={item.imageUrl} alt="" className="h-9 w-9 shrink-0 rounded-md object-cover" />
+                                  ) : (
+                                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-violet-400 text-sm text-black">♫</div>
+                                  )}
+                                  <span className="min-w-0 flex-1">
+                                    <span className="block truncate text-xs font-bold">{item.trackName}</span>
+                                    <span className={`block truncate text-[11px] ${muted}`}>{item.artistName}</span>
+                                  </span>
+                                  <button
+                                    type="button"
+                                    disabled={jukeboxBusy}
+                                    onClick={() => void controlJukebox("remove", undefined, undefined, item.id)}
+                                    className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-sm disabled:opacity-50 ${isDark ? "hover:bg-white/15" : "hover:bg-slate-200"}`}
+                                    aria-label="Skip this recommendation"
+                                    title="Remove"
+                                  >
+                                    ×
+                                  </button>
+                                </div>
+                              ))
+                            )}
                           </div>
                         </div>
                       )}
