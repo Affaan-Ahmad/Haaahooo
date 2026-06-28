@@ -62,6 +62,11 @@ export type QueueRow = {
 
 const AUTO_REFILL_THRESHOLD = 3;
 const AUTO_BATCH = 10;
+// Only commit the next track to Spotify's queue within this window before the
+// current song ends. Spotify can't reorder its queue, so buffering late lets a
+// song you add (higher priority than radio) still take the next slot. Must be
+// comfortably larger than the cron interval (60s) so the buffer lands in time.
+const PREQUEUE_WINDOW_MS = 90_000;
 
 export function publicState(row: JukeboxRow | null) {
   if (!row) return null;
@@ -707,8 +712,14 @@ async function setCurrent(
   return { saved: saved as JukeboxRow, playback };
 }
 
-/** Ensure exactly one upcoming track is pre-loaded into each Spotify queue. */
-export async function prequeueNext(conversationId: string) {
+/** Ensure exactly one upcoming track is pre-loaded into each Spotify queue.
+ *  By default this only acts within PREQUEUE_WINDOW_MS of the current song's
+ *  end, so a song added earlier (which has queue priority) still gets the next
+ *  slot. Pass force:true to buffer immediately regardless of timing. */
+export async function prequeueNext(
+  conversationId: string,
+  opts: { force?: boolean } = {},
+) {
   const { data } = await supabaseAdmin
     .from("conversation_jukebox")
     .select("*")
@@ -716,6 +727,13 @@ export async function prequeueNext(conversationId: string) {
     .maybeSingle();
   const current = data as JukeboxRow | null;
   if (!current?.track_uri) return null;
+
+  // Too early: don't lock in the buffer yet (lets later, higher-priority adds
+  // take the slot). Short songs fall inside the window immediately.
+  if (!opts.force) {
+    const remaining = current.duration_ms - currentPosition(current);
+    if (remaining > PREQUEUE_WINDOW_MS) return null;
+  }
 
   // Already have an outstanding (unplayed) buffered track? Leave it.
   if (current.prequeued_queue_id) {

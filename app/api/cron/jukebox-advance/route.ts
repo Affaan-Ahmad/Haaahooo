@@ -56,7 +56,9 @@ async function handle(request: NextRequest) {
           requireEnded: true,
         });
         if (result.advanced) advanced++;
-      } else if (!row.prequeued_queue_id) {
+      } else {
+        // prequeueNext only acts within the pre-queue window, so this is a
+        // no-op until the song is near its end.
         const next = await prequeueNext(row.conversation_id);
         if (next) buffered++;
       }

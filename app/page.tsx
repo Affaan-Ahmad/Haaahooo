@@ -1003,6 +1003,28 @@ export default function Home() {
     jukeboxState?.positionMs,
   ]);
 
+  // Pre-buffer the next track ~85s before the song ends (matches the server's
+  // 90s window). Buffering this late lets a song you add mid-track still take
+  // the next slot, since Spotify can't reorder its queue once something's in it.
+  useEffect(() => {
+    const s = jukeboxState;
+    if (!s?.isPlaying || !s.trackUri || s.durationMs <= 0) return;
+    const elapsed = Date.now() - new Date(s.changedAt).getTime();
+    const livePos = Math.min(s.durationMs, s.positionMs + Math.max(0, elapsed));
+    const delay = Math.max(0, s.durationMs - livePos - 85_000);
+    const id = window.setTimeout(() => {
+      void controlJukebox("prequeue");
+    }, delay);
+    return () => window.clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    jukeboxState?.changedAt,
+    jukeboxState?.isPlaying,
+    jukeboxState?.trackUri,
+    jukeboxState?.durationMs,
+    jukeboxState?.positionMs,
+  ]);
+
   useEffect(() => {
     function handlePhoneBack() {
       const conversationId = new URLSearchParams(window.location.search).get(
@@ -1313,7 +1335,8 @@ export default function Home() {
       | "next"
       | "previous"
       | "remove"
-      | "advance",
+      | "advance"
+      | "prequeue",
     track?: SpotifyTrack,
     positionMs?: number,
     queueId?: string,
@@ -1323,7 +1346,9 @@ export default function Home() {
     const headers = await spotifyApiHeaders();
     if (!headers) return;
 
-    if (action !== "advance") {
+    const silent = action === "advance" || action === "prequeue";
+
+    if (!silent) {
       setJukeboxBusy(true);
       setJukeboxStatus("");
     }
@@ -1352,10 +1377,10 @@ export default function Home() {
           playback?: { connected: number; total: number };
         }
       | null;
-    if (action !== "advance") setJukeboxBusy(false);
+    if (!silent) setJukeboxBusy(false);
 
     if (!response.ok) {
-      if (action !== "advance") {
+      if (!silent) {
         setJukeboxStatus(result?.error ?? "The jukebox command failed.");
       }
       return;
@@ -1369,7 +1394,7 @@ export default function Home() {
       setJukeboxQuery("");
     }
 
-    if (action === "advance") return;
+    if (silent) return;
 
     if (action === "enqueue") {
       setJukeboxStatus("Added to the queue.");

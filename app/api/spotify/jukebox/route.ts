@@ -33,7 +33,8 @@ type JukeboxAction =
   | "next"
   | "previous"
   | "remove"
-  | "advance";
+  | "advance"
+  | "prequeue";
 
 export async function GET(request: NextRequest) {
   const user = await getAuthenticatedUser(request);
@@ -151,6 +152,12 @@ export async function POST(request: NextRequest) {
         requireEnded: true,
       });
       return respond(result.advanced ? result.playback : undefined);
+    }
+
+    // ---- Pre-buffer the next track (fired by the app near song end) ------
+    if (action === "prequeue") {
+      await prequeueNext(conversationId).catch(() => null);
+      return respond();
     }
 
     // ---- Manual next: interrupt-play the true next ----------------------
