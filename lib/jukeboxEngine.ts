@@ -213,6 +213,14 @@ async function getMarket(token: string) {
   return typeof c === "string" && c.length === 2 ? c : "US";
 }
 
+/** Track search URL WITHOUT a market param (matches the app's working search;
+ *  adding market makes Spotify reject some tokens with a 400). */
+function trackSearchUrl(q: string) {
+  const u = new URL("https://api.spotify.com/v1/search");
+  u.search = new URLSearchParams({ q, type: "track", limit: "20" }).toString();
+  return u.toString();
+}
+
 export type RadioReport = {
   market: string;
   seedTrackOk: boolean;
@@ -260,9 +268,11 @@ export async function gatherCandidates(
   );
   if (trackRes.status !== 200) notes.push(`tracks/{id} -> ${trackRes.status}`);
   const track = trackRes.json as SpotifyApiTrack | null;
-  artistId = track?.artists?.[0]?.id ?? null;
-  artistName = track?.artists?.[0]?.name ?? null;
+  const trackArtists = (track?.artists ?? []).filter((a) => a?.name);
+  artistId = trackArtists[0]?.id ?? null;
+  artistName = trackArtists[0]?.name ?? null;
 
+  // Source 1: artist top-tracks (often 403 for restricted apps — best effort).
   if (artistId) {
     const top = await spotifyFetch(
       token,
@@ -273,41 +283,40 @@ export async function gatherCandidates(
     topTracks.forEach(consider);
     counts.topTracks = topTracks.length;
 
+    // Genres for a keyword search — many artists have none.
     const artistRes = await spotifyFetch(
       token,
       `https://api.spotify.com/v1/artists/${artistId}`,
     );
     if (artistRes.status !== 200) notes.push(`artists/{id} -> ${artistRes.status}`);
     genres = ((artistRes.json?.genres as string[] | undefined) ?? []).slice(0, 2);
-
-    for (const genre of genres) {
-      const q = encodeURIComponent(genre);
-      const search = await spotifyFetch(
-        token,
-        `https://api.spotify.com/v1/search?type=track&limit=20&market=${market}&q=${q}`,
-      );
-      if (search.status !== 200) notes.push(`search(genre) -> ${search.status}`);
-      const items =
-        (search.json?.tracks as { items?: SpotifyApiTrack[] } | undefined)?.items ?? [];
-      items.forEach(consider);
-      counts.genreSearch += items.length;
-    }
-  } else {
-    notes.push("seed track had no artist id");
   }
 
-  // Fallback / extra variety: search by the artist's name.
-  if (artistName && (genres.length === 0 || candidates.size < 5)) {
-    const q = encodeURIComponent(artistName);
-    const search = await spotifyFetch(
-      token,
-      `https://api.spotify.com/v1/search?type=track&limit=20&market=${market}&q=${q}`,
-    );
-    if (search.status !== 200) notes.push(`search(artist) -> ${search.status}`);
+  // Source 2: plain-keyword genre search (no market).
+  for (const genre of genres) {
+    const search = await spotifyFetch(token, trackSearchUrl(genre));
+    if (search.status !== 200) notes.push(`search(genre) -> ${search.status}`);
     const items =
       (search.json?.tracks as { items?: SpotifyApiTrack[] } | undefined)?.items ?? [];
     items.forEach(consider);
-    counts.artistSearch = items.length;
+    counts.genreSearch += items.length;
+  }
+
+  // Source 3 (the main one when catalog endpoints are restricted): search each
+  // artist on the seed track by name to pull more of their catalog.
+  const namesToSearch = [
+    ...new Set(trackArtists.map((a) => a.name!).filter(Boolean)),
+  ].slice(0, 3);
+  for (const name of namesToSearch) {
+    const search = await spotifyFetch(token, trackSearchUrl(name));
+    if (search.status !== 200) {
+      notes.push(`search(artist) -> ${search.status}`);
+      continue;
+    }
+    const items =
+      (search.json?.tracks as { items?: SpotifyApiTrack[] } | undefined)?.items ?? [];
+    items.forEach(consider);
+    counts.artistSearch += items.length;
   }
 
   return {
