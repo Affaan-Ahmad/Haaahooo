@@ -761,7 +761,19 @@ export async function prequeueNext(
   return next;
 }
 
-/** Start a chosen track now (user action): interrupt-play + buffer the next. */
+/** Drop the unplayed auto/radio picks (e.g. after a manual song change) so the
+ *  radio re-seeds from the new current song. Leaves user-added songs alone. */
+export async function clearAutoQueue(conversationId: string) {
+  await supabaseAdmin
+    .from("conversation_jukebox_queue")
+    .delete()
+    .eq("conversation_id", conversationId)
+    .eq("source", "auto")
+    .eq("played", false);
+}
+
+/** Start a chosen track now (user action): interrupt-play + buffer the next.
+ *  A manual pick re-seeds the radio from the new song. */
 export async function playTrackNow(
   conversationId: string,
   queueRow: QueueRow,
@@ -769,6 +781,7 @@ export async function playTrackNow(
   positionMs = 0,
 ) {
   const result = await setCurrent(conversationId, queueRow, userId, true, positionMs);
+  await clearAutoQueue(conversationId);
   await prequeueNext(conversationId).catch(() => null);
   await maybeRefill(conversationId, result.saved);
   return result;
@@ -859,6 +872,9 @@ export async function advanceJukebox(
     if (!next) return { advanced: false, reason: "no-next" };
     result = await setCurrent(conversationId, next, userId, true);
   }
+
+  // A manual skip re-seeds the radio from the new song (auto-advance doesn't).
+  if (options.forcePlay) await clearAutoQueue(conversationId);
 
   await prequeueNext(conversationId).catch(() => null);
   await maybeRefill(conversationId, result.saved);
