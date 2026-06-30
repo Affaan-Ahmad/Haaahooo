@@ -372,6 +372,7 @@ export default function Home() {
   const [jukeboxAutoQueue, setJukeboxAutoQueue] = useState<JukeboxQueueItem[]>([]);
   const [queueView, setQueueView] = useState<"none" | "user" | "auto">("none");
   const [isOffline, setIsOffline] = useState(false);
+  const [myDeviceNeedsOpen, setMyDeviceNeedsOpen] = useState(false);
   const [jukeboxQuery, setJukeboxQuery] = useState("");
   const [jukeboxResults, setJukeboxResults] = useState<SpotifyTrack[]>([]);
   const [jukeboxSearching, setJukeboxSearching] = useState(false);
@@ -1416,7 +1417,7 @@ export default function Home() {
           queue?: JukeboxQueueItem[];
           autoQueue?: JukeboxQueueItem[];
           error?: string;
-          playback?: { connected: number; total: number };
+          playback?: { connected: number; total: number; needsOpen?: string[] };
         }
       | null;
     if (!silent) setJukeboxBusy(false);
@@ -1434,6 +1435,13 @@ export default function Home() {
     if (track) {
       setJukeboxResults([]);
       setJukeboxQuery("");
+    }
+
+    // Fallback B: if MY own Spotify couldn't be reached, surface a tap-to-start.
+    if (result?.playback) {
+      const myId = session?.user?.id;
+      const needsOpen = result.playback.needsOpen ?? [];
+      setMyDeviceNeedsOpen(Boolean(myId && needsOpen.includes(myId)));
     }
 
     if (silent) return;
@@ -2645,6 +2653,17 @@ export default function Home() {
                       </button>
                     </div>
                   ))}
+
+                  {myDeviceNeedsOpen && (
+                    <button
+                      type="button"
+                      disabled={jukeboxBusy}
+                      onClick={() => void controlJukebox("play")}
+                      className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl bg-[#1DB954] px-3 py-2 text-sm font-bold text-black disabled:opacity-50"
+                    >
+                      ▶ Tap to start on your Spotify
+                    </button>
+                  )}
 
                   {jukeboxStatus && (
                     <p className={`mt-2 rounded-xl p-2 text-xs ${isDark ? "bg-white/10" : "bg-slate-100"} ${muted}`}>

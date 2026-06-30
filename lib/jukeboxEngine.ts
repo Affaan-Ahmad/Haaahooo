@@ -574,7 +574,7 @@ type SpotifyDevices = {
   devices?: Array<{ id?: string | null; is_active?: boolean; is_restricted?: boolean }>;
 };
 
-async function findDeviceId(token: string) {
+async function findDevice(token: string) {
   const res = await fetch("https://api.spotify.com/v1/me/player/devices", {
     headers: { Authorization: `Bearer ${token}` },
     cache: "no-store",
@@ -584,7 +584,30 @@ async function findDeviceId(token: string) {
   const device =
     devices.devices?.find((d) => d.is_active && !d.is_restricted && d.id) ??
     devices.devices?.find((d) => !d.is_restricted && d.id);
+  if (!device?.id) return null;
+  return { id: device.id, isActive: Boolean(device.is_active) };
+}
+
+async function findDeviceId(token: string) {
+  const device = await findDevice(token);
   return device?.id ?? null;
+}
+
+/** Wake an idle (running-but-inactive) device by transferring playback to it,
+ *  so the subsequent play command lands without the user opening Spotify. */
+async function wakeDevice(token: string, deviceId: string) {
+  try {
+    await fetch("https://api.spotify.com/v1/me/player", {
+      method: "PUT",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ device_ids: [deviceId], play: false }),
+      cache: "no-store",
+    });
+    // Give Spotify a moment to mark the device active before we play.
+    await new Promise((r) => setTimeout(r, 450));
+  } catch {
+    // best-effort
+  }
 }
 
 async function playOnAccount(
@@ -593,13 +616,28 @@ async function playOnAccount(
   positionMs: number,
 ) {
   const token = await getSpotifyAccessToken(userId);
-  if (!token) return { userId, ok: false, reason: "Spotify not connected" };
-  const deviceId = await findDeviceId(token);
-  if (!deviceId) {
-    return { userId, ok: false, reason: "Open Spotify on a phone or computer first" };
+  if (!token) {
+    return { userId, ok: false, reason: "Spotify not connected", needsOpen: false };
   }
+  const device = await findDevice(token);
+  if (!device) {
+    // No device registered at all — Spotify is fully closed on this account.
+    return {
+      userId,
+      ok: false,
+      reason: "Open Spotify on a phone or computer first",
+      needsOpen: true,
+    };
+  }
+
+  // If the device is running but idle, wake it (transfer playback) so the
+  // play command lands without the user having to open Spotify.
+  if (!device.isActive) {
+    await wakeDevice(token, device.id);
+  }
+
   const url = new URL("https://api.spotify.com/v1/me/player/play");
-  url.searchParams.set("device_id", deviceId);
+  url.searchParams.set("device_id", device.id);
   const res = await fetch(url, {
     method: "PUT",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
@@ -609,7 +647,14 @@ async function playOnAccount(
     }),
     cache: "no-store",
   });
-  return { userId, ok: res.ok, reason: res.ok ? null : `Spotify ${res.status}` };
+
+  // 404 = device went away; ask the user to open Spotify (fallback B).
+  return {
+    userId,
+    ok: res.ok,
+    reason: res.ok ? null : `Spotify ${res.status}`,
+    needsOpen: !res.ok && (res.status === 404 || res.status === 403),
+  };
 }
 
 async function pauseAccount(userId: string) {
@@ -667,6 +712,11 @@ export async function broadcastPlayback(
     connected: results.filter((r) => r.ok).length,
     total: results.length,
     failures: results.filter((r) => !r.ok),
+    needsOpen: results
+      .filter(
+        (r) => !r.ok && (r as { needsOpen?: boolean }).needsOpen,
+      )
+      .map((r) => r.userId),
   };
 }
 
