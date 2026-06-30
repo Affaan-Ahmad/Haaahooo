@@ -24,6 +24,12 @@ import {
   MessageIn,
 } from "@/components/ui/motion-primitives";
 import { JukeboxPlayer } from "@/components/ui/JukeboxPlayer";
+import {
+  saveChatsCache,
+  readChatsCache,
+  saveMessagesCache,
+  readMessagesCache,
+} from "@/lib/offlineCache";
 
 type MessageType = "text" | "image" | "video" | "audio";
 type ThemeMode = "auto" | "light" | "dark";
@@ -365,6 +371,7 @@ export default function Home() {
   const [jukeboxQueue, setJukeboxQueue] = useState<JukeboxQueueItem[]>([]);
   const [jukeboxAutoQueue, setJukeboxAutoQueue] = useState<JukeboxQueueItem[]>([]);
   const [queueView, setQueueView] = useState<"none" | "user" | "auto">("none");
+  const [isOffline, setIsOffline] = useState(false);
   const [jukeboxQuery, setJukeboxQuery] = useState("");
   const [jukeboxResults, setJukeboxResults] = useState<SpotifyTrack[]>([]);
   const [jukeboxSearching, setJukeboxSearching] = useState(false);
@@ -454,6 +461,17 @@ export default function Home() {
   useEffect(() => {
     localStorage.setItem(THEME_STORAGE_KEY, themeMode);
   }, [themeMode]);
+
+  useEffect(() => {
+    const update = () => setIsOffline(!navigator.onLine);
+    update();
+    window.addEventListener("online", update);
+    window.addEventListener("offline", update);
+    return () => {
+      window.removeEventListener("online", update);
+      window.removeEventListener("offline", update);
+    };
+  }, []);
 
   useEffect(() => {
     localStorage.setItem(
@@ -574,12 +592,19 @@ export default function Home() {
     const { data, error: chatsError } = await supabase.rpc("get_my_chats");
 
     if (chatsError) {
-      setError(chatsError.message);
+      // Offline / fetch failed — show the last known chat list if we have one.
+      const cached = readChatsCache<Chat>();
+      if (cached.length) {
+        setChats(cached);
+      } else {
+        setError(chatsError.message);
+      }
       return;
     }
 
     const nextChats = (data ?? []) as Chat[];
     setChats(nextChats);
+    saveChatsCache(nextChats);
     const linkedConversationId =
       typeof window === "undefined"
         ? undefined
@@ -686,8 +711,15 @@ export default function Home() {
     if (cachedMessages) {
       setMessages(cachedMessages);
     } else {
-      setMessages([]);
-      setMessagesLoading(true);
+      // Show the persisted (offline) copy immediately if we have one.
+      const persisted = readMessagesCache<Message>(conversationId);
+      if (persisted.length) {
+        setMessages(persisted);
+        setMessagesLoading(false);
+      } else {
+        setMessages([]);
+        setMessagesLoading(true);
+      }
     }
 
     async function loadMessages() {
@@ -701,7 +733,13 @@ export default function Home() {
 
       if (messagesError) {
         if (active) {
-          setError(`Could not load message history: ${messagesError.message}`);
+          // Offline — keep showing the persisted copy if available.
+          const persisted = readMessagesCache<Message>(conversationId);
+          if (persisted.length) {
+            setMessages(persisted);
+          } else {
+            setError(`Could not load message history: ${messagesError.message}`);
+          }
           setMessagesLoading(false);
         }
         return;
@@ -711,6 +749,7 @@ export default function Home() {
       if (active) {
         messageCacheRef.current.set(conversationId, rows);
         setMessages(rows);
+        saveMessagesCache(conversationId, rows);
         setMessagesLoading(false);
         void loadMessageReactions(rows.map((message) => message.id));
       }
@@ -738,6 +777,7 @@ export default function Home() {
               ? current
               : [...current, messageWithUrl];
             messageCacheRef.current.set(conversationId, nextMessages);
+            saveMessagesCache(conversationId, nextMessages);
             return nextMessages;
           });
           const cachedIds =
@@ -1945,6 +1985,11 @@ export default function Home() {
   return (
     <main className="relative min-h-[100dvh] overflow-hidden p-0 md:p-4">
       <SkyBackground theme={effectiveTheme} />
+      {isOffline && (
+        <div className="fixed inset-x-0 top-0 z-50 bg-amber-500/95 px-3 py-1.5 text-center text-xs font-semibold text-black shadow-md">
+          Offline — showing saved messages. New messages will sync when you reconnect.
+        </div>
+      )}
       <input ref={imageInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
       <input ref={videoInputRef} type="file" accept="video/*" className="hidden" onChange={handleFileChange} />
       <audio ref={voiceCall.remoteAudioRef} autoPlay playsInline className="hidden" />
