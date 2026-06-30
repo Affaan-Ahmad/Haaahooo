@@ -156,6 +156,38 @@ export async function getAnyMemberToken(conversationId: string) {
   return null;
 }
 
+/** Read one account's real Spotify playback state. */
+async function getPlaybackSnapshot(token: string) {
+  try {
+    const res = await fetch("https://api.spotify.com/v1/me/player", {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
+    });
+    // 204 = no active device / nothing playing.
+    if (res.status !== 200) return { playing: false, trackId: null as string | null };
+    const j = (await res.json().catch(() => null)) as {
+      is_playing?: boolean;
+      item?: { id?: string } | null;
+    } | null;
+    return { playing: Boolean(j?.is_playing), trackId: j?.item?.id ?? null };
+  } catch {
+    return { playing: false, trackId: null as string | null };
+  }
+}
+
+/** True if at least one member's Spotify is actually playing right now. Used to
+ *  stop the cron from "resurrecting" a session the listeners actually stopped. */
+export async function anyMemberPlaying(conversationId: string) {
+  const memberIds = await getMemberIds(conversationId);
+  for (const memberId of memberIds) {
+    const token = await getSpotifyAccessToken(memberId).catch(() => null);
+    if (!token) continue;
+    const snap = await getPlaybackSnapshot(token);
+    if (snap.playing) return true;
+  }
+  return false;
+}
+
 export async function loadQueue(conversationId: string) {
   const { data, error } = await supabaseAdmin
     .from("conversation_jukebox_queue")

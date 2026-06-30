@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import {
   advanceJukebox,
+  anyMemberPlaying,
   currentPosition,
   prequeueNext,
   type JukeboxRow,
@@ -45,12 +46,30 @@ async function handle(request: NextRequest) {
   let checked = 0;
   let advanced = 0;
   let buffered = 0;
+  let reconciled = 0;
 
   for (const row of rows) {
     if (!row.track_uri || !row.duration_ms) continue;
     checked++;
-    const ended = currentPosition(row) >= row.duration_ms - 1500;
     try {
+      // Don't resurrect a session the listeners actually stopped. If nobody's
+      // Spotify is playing, mark it paused and leave it alone.
+      const live = await anyMemberPlaying(row.conversation_id);
+      if (!live) {
+        const pos = Math.min(currentPosition(row), row.duration_ms);
+        await supabaseAdmin
+          .from("conversation_jukebox")
+          .update({
+            is_playing: false,
+            position_ms: Math.round(pos),
+            changed_at: new Date().toISOString(),
+          })
+          .eq("conversation_id", row.conversation_id);
+        reconciled++;
+        continue;
+      }
+
+      const ended = currentPosition(row) >= row.duration_ms - 1500;
       if (ended) {
         const result = await advanceJukebox(row.conversation_id, row.changed_by, {
           requireEnded: true,
@@ -67,7 +86,7 @@ async function handle(request: NextRequest) {
     }
   }
 
-  return NextResponse.json({ ok: true, checked, advanced, buffered });
+  return NextResponse.json({ ok: true, checked, advanced, buffered, reconciled });
 }
 
 export async function GET(request: NextRequest) {
