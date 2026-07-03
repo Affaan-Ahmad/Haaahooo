@@ -228,10 +228,32 @@ export function WatchParty({
   const lastAdvanceRef = useRef<string | null>(null);
   const reportedDurationForRef = useRef<string | null>(null);
 
+  const rootRef = useRef<HTMLDivElement | null>(null);
   const [needsTap, setNeedsTap] = useState(false);
   const [controlsVisible, setControlsVisible] = useState(true);
   const [chatVisible, setChatVisible] = useState(true);
   const [addOpen, setAddOpen] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  // Track real (browser) fullscreen so the button reflects the current mode.
+  useEffect(() => {
+    if (!open) return;
+    const onChange = () => setIsFullscreen(Boolean(document.fullscreenElement));
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, [open]);
+
+  const toggleFullscreen = useCallback(() => {
+    const el = rootRef.current;
+    if (!el) return;
+    if (document.fullscreenElement) {
+      void document.exitFullscreen?.();
+    } else {
+      // Unsupported on iOS Safari for non-video elements — the CSS overlay is
+      // already full-bleed there, so a no-op is fine.
+      void el.requestFullscreen?.().catch(() => {});
+    }
+  }, []);
 
   const releaseGuardSoon = useCallback(() => {
     window.setTimeout(() => {
@@ -480,10 +502,11 @@ export function WatchParty({
 
   const recentMessages = messages
     .filter((m) => (m.body ?? "").trim().length > 0 || m.message_type !== "text")
-    .slice(-14);
+    .slice(-40);
 
   return (
     <div
+      ref={rootRef}
       className="fixed inset-0 z-[100] bg-black select-none"
       onMouseMove={showControls}
       onClick={showControls}
@@ -587,6 +610,19 @@ export function WatchParty({
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
+                toggleFullscreen();
+                showControls();
+              }}
+              className="flex h-9 w-9 items-center justify-center rounded-full bg-white/15 text-base text-white backdrop-blur hover:bg-white/25"
+              title={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
+              aria-label="Toggle fullscreen"
+            >
+              {isFullscreen ? "⤡" : "⛶"}
+            </button>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
                 onClose();
               }}
               className="flex h-9 w-9 items-center justify-center rounded-full bg-white/15 text-lg text-white backdrop-blur hover:bg-white/25"
@@ -599,10 +635,10 @@ export function WatchParty({
         </div>
       </div>
 
-      {/* ---- add-video drawer ---- */}
+      {/* ---- add-video drawer (left, so it doesn't cover the right chat) ---- */}
       {addOpen && hasVideo && (
         <div
-          className="absolute right-3 top-16 z-30 w-[min(92vw,26rem)]"
+          className="absolute left-3 top-16 z-30 w-[min(92vw,26rem)]"
           onClick={(e) => e.stopPropagation()}
         >
           <AddVideoPanel
@@ -615,10 +651,10 @@ export function WatchParty({
         </div>
       )}
 
-      {/* ---- transparent live chat overlay ---- */}
-      {chatVisible && (
+      {/* ---- transparent live chat overlay (right side, above the controls) ---- */}
+      {chatVisible && hasVideo && (
         <div
-          className="absolute bottom-24 left-3 z-10 w-[min(88vw,22rem)]"
+          className="absolute right-3 top-16 bottom-28 z-20 flex w-[min(85vw,20rem)] flex-col"
           onClick={(e) => e.stopPropagation()}
         >
           <ChatOverlay
@@ -938,10 +974,10 @@ function ChatOverlay({
   };
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex h-full min-h-0 flex-col gap-2">
       <div
         ref={scrollRef}
-        className="max-h-[40vh] space-y-1 overflow-y-auto pr-1"
+        className="min-h-0 flex-1 space-y-1 overflow-y-auto pr-1"
         style={{ maskImage: "linear-gradient(to bottom, transparent, #000 18%)" }}
       >
         {messages.map((m) => {
