@@ -25,6 +25,14 @@ import {
 } from "@/components/ui/motion-primitives";
 import { JukeboxPlayer } from "@/components/ui/JukeboxPlayer";
 import {
+  WatchParty,
+  type WatchState,
+  type WatchQueueItem,
+  type WatchVideo,
+  type WatchControlAction,
+  type WatchControlOpts,
+} from "@/components/ui/WatchParty";
+import {
   saveChatsCache,
   readChatsCache,
   saveMessagesCache,
@@ -378,6 +386,9 @@ export default function Home() {
   const [jukeboxSearching, setJukeboxSearching] = useState(false);
   const [jukeboxBusy, setJukeboxBusy] = useState(false);
   const [jukeboxStatus, setJukeboxStatus] = useState("");
+  const [watchOpen, setWatchOpen] = useState(false);
+  const [watchState, setWatchState] = useState<WatchState | null>(null);
+  const [watchQueue, setWatchQueue] = useState<WatchQueueItem[]>([]);
   const [mediaOpen, setMediaOpen] = useState(false);
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
@@ -954,6 +965,48 @@ export default function Home() {
     };
   }, [session, selectedChat?.conversation_id]);
 
+  // Watch party (synced YouTube) shared state + realtime.
+  useEffect(() => {
+    if (!session || !selectedChat) {
+      setWatchState(null);
+      setWatchQueue([]);
+      setWatchOpen(false);
+      return;
+    }
+
+    const conversationId = selectedChat.conversation_id;
+    void loadWatch(conversationId);
+
+    const channel = supabase
+      .channel(`watch-${conversationId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "conversation_watch",
+          filter: `conversation_id=eq.${conversationId}`,
+        },
+        () => void loadWatch(conversationId),
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "conversation_watch_queue",
+          filter: `conversation_id=eq.${conversationId}`,
+        },
+        () => void loadWatch(conversationId),
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session, selectedChat?.conversation_id]);
+
   useEffect(() => {
     const el = scrollContainerRef.current;
     if (!el) return;
@@ -1337,6 +1390,97 @@ export default function Home() {
     } else {
       setJukeboxStatus(result?.error ?? "Could not load the jukebox.");
     }
+  }
+
+  /* ---------------------- watch party (synced YouTube) ------------------- */
+
+  async function loadWatch(conversationId: string) {
+    const headers = await spotifyApiHeaders();
+    if (!headers) return;
+    const response = await fetch(
+      `/api/youtube/watch?conversationId=${encodeURIComponent(conversationId)}`,
+      { headers, cache: "no-store" },
+    );
+    const result = (await response.json().catch(() => null)) as
+      | { state?: WatchState | null; queue?: WatchQueueItem[]; error?: string }
+      | null;
+    if (response.ok) {
+      setWatchState(result?.state ?? null);
+      setWatchQueue(result?.queue ?? []);
+    }
+  }
+
+  async function controlWatch(
+    action: WatchControlAction,
+    opts: WatchControlOpts = {},
+  ) {
+    if (!selectedChat) return;
+    const headers = await spotifyApiHeaders();
+    if (!headers) return;
+    const response = await fetch("/api/youtube/watch", {
+      method: "POST",
+      headers: { ...headers, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        conversationId: selectedChat.conversation_id,
+        action,
+        ...opts,
+      }),
+    });
+    const result = (await response.json().catch(() => null)) as
+      | { state?: WatchState | null; queue?: WatchQueueItem[]; error?: string }
+      | null;
+    if (response.ok) {
+      setWatchState(result?.state ?? null);
+      setWatchQueue(result?.queue ?? []);
+    } else {
+      throw new Error(result?.error ?? "The watch command failed.");
+    }
+  }
+
+  async function resolveWatchUrl(url: string): Promise<WatchVideo> {
+    const headers = await spotifyApiHeaders();
+    if (!headers) throw new Error("You're signed out.");
+    const response = await fetch(
+      `/api/youtube/resolve?url=${encodeURIComponent(url)}`,
+      { headers, cache: "no-store" },
+    );
+    const result = (await response.json().catch(() => null)) as
+      | { video?: WatchVideo; error?: string }
+      | null;
+    if (!response.ok || !result?.video) {
+      throw new Error(result?.error ?? "Couldn't resolve that link.");
+    }
+    return result.video;
+  }
+
+  async function searchWatch(query: string): Promise<WatchVideo[]> {
+    const headers = await spotifyApiHeaders();
+    if (!headers) throw new Error("You're signed out.");
+    const response = await fetch(
+      `/api/youtube/search?q=${encodeURIComponent(query)}`,
+      { headers, cache: "no-store" },
+    );
+    const result = (await response.json().catch(() => null)) as
+      | { videos?: WatchVideo[]; error?: string }
+      | null;
+    if (!response.ok) {
+      throw new Error(result?.error ?? "YouTube search failed.");
+    }
+    return result?.videos ?? [];
+  }
+
+  async function sendWatchMessage(body: string) {
+    const value = body.trim();
+    if (!value || !session || !selectedChat) return;
+    await supabase.from("messages").insert({
+      conversation_id: selectedChat.conversation_id,
+      body: value,
+      sender_id: session.user.id,
+      message_type: "text",
+      is_bot: false,
+      reply_to_message_id: null,
+    });
+    await sendPushNotification("text", selectedChat.conversation_id);
   }
 
   async function searchSpotify() {
@@ -2427,6 +2571,20 @@ export default function Home() {
                 <button
                   type="button"
                   onClick={() => {
+                    setWatchOpen(true);
+                    setJukeboxOpen(false);
+                    setMediaOpen(false);
+                    setEmojiOpen(false);
+                  }}
+                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-lg ${watchState?.videoId ? "bg-red-600 text-white" : isDark ? "bg-white/10" : "bg-slate-100"}`}
+                  aria-label="Open watch party"
+                  title="Watch YouTube together"
+                >
+                  🎬
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
                     messageCacheRef.current.delete(selectedChat.conversation_id);
                     setMessagesLoading(true);
                     setMessageRefreshKey((current) => current + 1);
@@ -2930,6 +3088,21 @@ export default function Home() {
           )}
         </section>
       </div>
+
+      {session && selectedChat && (
+        <WatchParty
+          open={watchOpen}
+          onClose={() => setWatchOpen(false)}
+          state={watchState}
+          queue={watchQueue}
+          currentUserId={session.user.id}
+          control={controlWatch}
+          resolveUrl={resolveWatchUrl}
+          search={searchWatch}
+          messages={messages}
+          onSend={sendWatchMessage}
+        />
+      )}
     </main>
   );
 }
