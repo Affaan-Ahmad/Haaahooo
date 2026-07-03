@@ -2,6 +2,7 @@
 
 import {
   useEffect,
+  useMemo,
   useRef,
   useState,
   type CSSProperties,
@@ -354,6 +355,12 @@ export default function Home() {
   const [searching, setSearching] = useState(false);
 
   const [messages, setMessages] = useState<Message[]>([]);
+  // Fast id→message lookup so the render loop doesn't do an O(n²) `find` per
+  // message (to resolve replies) on every re-render, e.g. every keystroke.
+  const messageById = useMemo(
+    () => new Map(messages.map((m) => [m.id, m] as const)),
+    [messages],
+  );
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [messageRefreshKey, setMessageRefreshKey] = useState(0);
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
@@ -2852,9 +2859,7 @@ export default function Home() {
                   const bot = message.is_bot;
                   const mine = message.sender_id === session.user.id;
                   const repliedMessage = message.reply_to_message_id
-                    ? messages.find(
-                        (item) => item.id === message.reply_to_message_id,
-                      )
+                    ? messageById.get(message.reply_to_message_id)
                     : null;
                   const reactions = messageReactions[message.id] ?? [];
                   const seen =

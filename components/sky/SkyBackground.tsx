@@ -1,6 +1,6 @@
 "use client";
 
-import { useSyncExternalStore } from "react";
+import { memo, useSyncExternalStore } from "react";
 
 /**
  * SkyBackground
@@ -127,7 +127,7 @@ function subscribePhase(callback: () => void) {
   return () => window.clearInterval(id);
 }
 
-export function SkyBackground({
+function SkyBackgroundBase({
   theme,
   phase: phaseProp,
   precip = "none",
@@ -357,5 +357,13 @@ const skyKeyframes = `
   [aria-hidden] [style*="animation"] { animation: none !important; }
 }
 `;
+
+/**
+ * Memoized: the sky only depends on its (primitive) props, so it must NOT
+ * re-reconcile its ~80 animated nodes every time the huge parent page
+ * re-renders (which happens on every keystroke, presence tick, realtime
+ * event, …). React.memo skips those renders entirely.
+ */
+export const SkyBackground = memo(SkyBackgroundBase);
 
 export default SkyBackground;

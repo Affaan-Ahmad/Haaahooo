@@ -100,6 +100,9 @@ type YTPlayer = {
   getPlayerState: () => number;
   mute: () => void;
   unMute: () => void;
+  isMuted: () => boolean;
+  setVolume: (volume: number) => void;
+  getVolume: () => number;
   destroy: () => void;
 };
 
@@ -234,6 +237,9 @@ export function WatchParty({
   const [chatVisible, setChatVisible] = useState(true);
   const [addOpen, setAddOpen] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  // Volume is per-viewer (local to this player), never synced to the other side.
+  const [volume, setVolume] = useState(100);
+  const [muted, setMuted] = useState(false);
 
   // Track real (browser) fullscreen so the button reflects the current mode.
   useEffect(() => {
@@ -434,6 +440,18 @@ export function WatchParty({
     return () => window.clearInterval(id);
   }, [open, playerReady, reconcile]);
 
+  /* ---- adopt the player's real volume/mute once it's ready --------------- */
+  useEffect(() => {
+    const p = playerRef.current;
+    if (!open || !playerReady || !p) return;
+    try {
+      setVolume(Math.round(p.getVolume()));
+      setMuted(p.isMuted());
+    } catch {
+      /* ignore */
+    }
+  }, [open, playerReady]);
+
   /* ---- live progress bar (drives off the shared clock) ------------------- */
   const [nowTick, setNowTick] = useState(() => Date.now());
   const [dragValue, setDragValue] = useState<number | null>(null);
@@ -493,10 +511,39 @@ export function WatchParty({
     applyingRemoteRef.current = true;
     try {
       p.unMute();
+      setMuted(false);
       p.seekTo(expectedPosMs(s) / 1000, true);
       p.playVideo();
     } finally {
       releaseGuardSoon();
+    }
+  };
+
+  const changeVolume = (value: number) => {
+    const v = Math.max(0, Math.min(100, Math.round(value)));
+    setVolume(v);
+    const p = playerRef.current;
+    if (!p) return;
+    p.setVolume(v);
+    if (v === 0) {
+      p.mute();
+      setMuted(true);
+    } else if (muted) {
+      p.unMute();
+      setMuted(false);
+    }
+  };
+
+  const toggleMute = () => {
+    const p = playerRef.current;
+    if (!p) return;
+    if (muted) {
+      p.unMute();
+      setMuted(false);
+      if (volume === 0) changeVolume(50);
+    } else {
+      p.mute();
+      setMuted(true);
     }
   };
 
@@ -701,35 +748,68 @@ export function WatchParty({
             <span>{durationMs > 0 ? fmt(durationMs) : "live"}</span>
           </div>
 
-          {/* transport */}
-          <div className="mt-2 flex items-center justify-center gap-5 text-white">
-            <button
-              type="button"
-              onClick={() => void control("previous")}
-              className="flex h-11 w-11 items-center justify-center rounded-full bg-white/12 text-lg backdrop-blur hover:bg-white/25"
-              aria-label="Previous"
-              title="Previous"
-            >
-              ⏮
-            </button>
-            <button
-              type="button"
-              onClick={togglePlay}
-              className="flex h-16 w-16 items-center justify-center rounded-full bg-red-600 text-2xl font-black text-white shadow-lg shadow-red-600/30 hover:bg-red-500"
-              aria-label={state?.isPlaying ? "Pause" : "Play"}
-            >
-              {state?.isPlaying ? "❚❚" : "▶"}
-            </button>
-            <button
-              type="button"
-              disabled={queue.length === 0}
-              onClick={() => void control("next")}
-              className="flex h-11 w-11 items-center justify-center rounded-full bg-white/12 text-lg backdrop-blur hover:bg-white/25 disabled:opacity-40"
-              aria-label="Next"
-              title={queue.length ? "Next" : "Nothing queued"}
-            >
-              ⏭
-            </button>
+          {/* transport + per-viewer volume */}
+          <div className="mt-2 flex items-center gap-3 text-white">
+            {/* volume (local to this viewer) */}
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={toggleMute}
+                className="flex h-10 w-10 items-center justify-center rounded-full bg-white/12 text-lg backdrop-blur hover:bg-white/25"
+                aria-label={muted ? "Unmute" : "Mute"}
+                title={muted ? "Unmute" : "Mute"}
+              >
+                {muted || volume === 0 ? "🔇" : volume < 50 ? "🔉" : "🔊"}
+              </button>
+              <input
+                type="range"
+                className="jukebox-range w-16 sm:w-24"
+                min={0}
+                max={100}
+                step={1}
+                value={muted ? 0 : volume}
+                style={{
+                  background: `linear-gradient(to right, #fff ${
+                    muted ? 0 : volume
+                  }%, rgba(255,255,255,0.25) ${muted ? 0 : volume}%)`,
+                }}
+                onChange={(e) => changeVolume(Number(e.target.value))}
+                aria-label="Volume"
+              />
+            </div>
+
+            <div className="flex flex-1 items-center justify-center gap-5">
+              <button
+                type="button"
+                onClick={() => void control("previous")}
+                className="flex h-11 w-11 items-center justify-center rounded-full bg-white/12 text-lg backdrop-blur hover:bg-white/25"
+                aria-label="Previous"
+                title="Previous"
+              >
+                ⏮
+              </button>
+              <button
+                type="button"
+                onClick={togglePlay}
+                className="flex h-16 w-16 items-center justify-center rounded-full bg-red-600 text-2xl font-black text-white shadow-lg shadow-red-600/30 hover:bg-red-500"
+                aria-label={state?.isPlaying ? "Pause" : "Play"}
+              >
+                {state?.isPlaying ? "❚❚" : "▶"}
+              </button>
+              <button
+                type="button"
+                disabled={queue.length === 0}
+                onClick={() => void control("next")}
+                className="flex h-11 w-11 items-center justify-center rounded-full bg-white/12 text-lg backdrop-blur hover:bg-white/25 disabled:opacity-40"
+                aria-label="Next"
+                title={queue.length ? "Next" : "Nothing queued"}
+              >
+                ⏭
+              </button>
+            </div>
+
+            {/* right spacer to keep transport visually centered on wider screens */}
+            <div className="hidden w-[104px] sm:block" />
           </div>
         </div>
       )}
@@ -958,12 +1038,6 @@ function ChatOverlay({
   onSend: (text: string) => Promise<void> | void;
 }) {
   const [text, setText] = useState("");
-  const scrollRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [messages.length]);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -973,14 +1047,20 @@ function ChatOverlay({
     await onSend(body);
   };
 
+  // Live-stream style: newest hugs the bottom, older ones drift up and fade
+  // out over the last handful. Only the most recent few are shown at all.
+  const shown = messages.slice(-6);
+
   return (
-    <div className="flex h-full min-h-0 flex-col gap-2">
+    <div className="flex h-full min-h-0 flex-col justify-end gap-2">
       <div
-        ref={scrollRef}
-        className="min-h-0 flex-1 space-y-1 overflow-y-auto pr-1"
-        style={{ maskImage: "linear-gradient(to bottom, transparent, #000 18%)" }}
+        className="flex flex-col justify-end gap-1 overflow-hidden"
+        style={{
+          maskImage: "linear-gradient(to top, #000 32%, transparent 100%)",
+          WebkitMaskImage: "linear-gradient(to top, #000 32%, transparent 100%)",
+        }}
       >
-        {messages.map((m) => {
+        {shown.map((m) => {
           const mine = m.sender_id === currentUserId;
           const name = m.is_bot
             ? "🤖 swiggy"
@@ -989,20 +1069,24 @@ function ChatOverlay({
               : m.sender_name ?? "Them";
           const label = (m.body ?? "").trim() || `[${m.message_type}]`;
           return (
-            <div key={m.id} className="text-[13px] leading-snug drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]">
-              <span
-                className={`font-bold ${mine ? "text-red-300" : "text-sky-300"}`}
-              >
-                {name}
+            <div key={m.id} className="flex">
+              <span className="inline-block rounded-lg bg-black/55 px-2 py-1 text-[13px] leading-snug text-white shadow-sm backdrop-blur-sm">
+                <span
+                  className={`font-bold ${mine ? "text-red-300" : "text-sky-300"}`}
+                >
+                  {name}
+                </span>
+                : {label}
               </span>
-              <span className="text-white/95">: {label}</span>
             </div>
           );
         })}
-        {messages.length === 0 && (
-          <p className="text-[13px] text-white/50 drop-shadow">
-            Chat while you watch…
-          </p>
+        {shown.length === 0 && (
+          <div className="flex">
+            <p className="rounded-lg bg-black/45 px-2 py-1 text-[13px] text-white/70 backdrop-blur-sm">
+              Chat while you watch…
+            </p>
+          </div>
         )}
       </div>
 
@@ -1011,7 +1095,7 @@ function ChatOverlay({
           value={text}
           onChange={(e) => setText(e.target.value)}
           placeholder="Say something…"
-          className="min-w-0 flex-1 rounded-full bg-black/40 px-3 py-2 text-sm text-white outline-none backdrop-blur placeholder:text-white/40"
+          className="min-w-0 flex-1 rounded-full border border-white/15 bg-black/60 px-3 py-2 text-sm text-white outline-none backdrop-blur placeholder:text-white/50"
         />
         <button
           type="submit"
