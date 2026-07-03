@@ -361,6 +361,17 @@ export default function Home() {
     () => new Map(messages.map((m) => [m.id, m] as const)),
     [messages],
   );
+  // When opening a conversation, skip the per-message entrance animation for
+  // the initial backlog — otherwise ~100 bubbles animate at once and fight the
+  // chat panel's slide-in, which reads as jank in a busy chat. New messages
+  // that arrive after the chat has settled still animate in.
+  const [suppressMsgAnim, setSuppressMsgAnim] = useState(false);
+  useEffect(() => {
+    if (!selectedChat?.conversation_id) return;
+    setSuppressMsgAnim(true);
+    const t = window.setTimeout(() => setSuppressMsgAnim(false), 380);
+    return () => window.clearTimeout(t);
+  }, [selectedChat?.conversation_id]);
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [messageRefreshKey, setMessageRefreshKey] = useState(0);
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
@@ -2875,7 +2886,11 @@ export default function Home() {
                     return summary;
                   }, {});
                   return (
-                    <MessageIn key={message.id} className={`mb-2.5 flex md:mb-3 ${mine && !bot ? "justify-end" : "justify-start"}`}>
+                    <MessageIn
+                      key={message.id}
+                      className={`mb-2.5 flex md:mb-3 ${mine && !bot ? "justify-end" : "justify-start"}`}
+                      {...(suppressMsgAnim ? { initial: false as const } : {})}
+                    >
                       <div className={`flex max-w-[88%] flex-col md:max-w-[72%] ${mine && !bot ? "items-end" : "items-start"}`}>
                         <div
                           onContextMenu={(event) =>
