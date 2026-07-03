@@ -66,9 +66,14 @@ const STARS = (() => {
 
 const FIREFLIES = (() => {
   const rand = mulberry32(7);
-  return Array.from({ length: 12 }, () => ({
-    left: 5 + rand() * 90,
-    top: 35 + rand() * 55,
+  const N = 12;
+  const band = 100 / N;
+  return Array.from({ length: N }, (_, i) => ({
+    // Stratify horizontally into evenly spaced columns (with jitter inside
+    // each) so they spread across the whole sky instead of clustering, and
+    // use most of the vertical space rather than just the lower third.
+    left: Math.max(3, Math.min(97, i * band + rand() * band)),
+    top: 8 + rand() * 80,
     delay: rand() * 8,
     dur: 7 + rand() * 7,
     drift: 12 + rand() * 26,

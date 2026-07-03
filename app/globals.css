@@ -177,6 +177,35 @@ input[type="range"]::-moz-range-thumb {
   }
 }
 
+/* ---- Mobile chat open: slide the chat panel in so tapping a chat feels
+       smooth instead of an instant hard swap. Desktop keeps both panels
+       static (no animation). Honors reduced-motion. ---- */
+@keyframes chatPanelIn {
+  from {
+    transform: translateX(6%);
+    opacity: 0.35;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+.chat-panel-enter {
+  animation: chatPanelIn 0.24s ease-out both;
+  will-change: transform, opacity;
+}
+@media (min-width: 768px) {
+  .chat-panel-enter {
+    animation: none;
+    will-change: auto;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chat-panel-enter {
+    animation: none;
+  }
+}
+
 /* ---- Mobile / PWA safe areas — PRESERVED ---- */
 @media (max-width: 767px) {
   html,

@@ -2533,7 +2533,7 @@ export default function Home() {
 
         <section
           style={panelSurfaceStyle}
-          className={`${mobileChatOpen ? "flex" : "hidden md:flex"} ${panelOpacity <= 25 ? "backdrop-blur-none" : "backdrop-blur-md"} relative min-h-0 min-w-0 w-full max-w-full flex-col overflow-hidden`}
+          className={`${mobileChatOpen ? "flex chat-panel-enter" : "hidden md:flex"} ${panelOpacity <= 25 ? "backdrop-blur-none" : "backdrop-blur-md"} relative min-h-0 min-w-0 w-full max-w-full flex-col overflow-hidden`}
         >
           {selectedChat ? (
             <>
