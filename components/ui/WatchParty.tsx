@@ -155,6 +155,30 @@ function expectedPosMs(s: WatchState) {
   return Math.min(cap, s.positionMs + Math.max(0, elapsed));
 }
 
+/** Best-effort: force landscape while a fullscreen video is playing. Supported
+ *  on Android Chrome; a silent no-op on iOS Safari (which lacks the API). */
+function lockLandscape() {
+  try {
+    const orientation = window.screen?.orientation as unknown as {
+      lock?: (o: string) => Promise<void>;
+    } | undefined;
+    void orientation?.lock?.("landscape").catch(() => {});
+  } catch {
+    /* unsupported */
+  }
+}
+
+function unlockOrientation() {
+  try {
+    const orientation = window.screen?.orientation as unknown as {
+      unlock?: () => void;
+    } | undefined;
+    orientation?.unlock?.();
+  } catch {
+    /* unsupported */
+  }
+}
+
 function fmt(ms: number) {
   const total = Math.max(0, Math.floor(ms / 1000));
   const h = Math.floor(total / 3600);
@@ -241,10 +265,15 @@ export function WatchParty({
   const [volume, setVolume] = useState(100);
   const [muted, setMuted] = useState(false);
 
-  // Track real (browser) fullscreen so the button reflects the current mode.
+  // Track real (browser) fullscreen so the button reflects the current mode,
+  // and drop any forced landscape orientation when leaving fullscreen.
   useEffect(() => {
     if (!open) return;
-    const onChange = () => setIsFullscreen(Boolean(document.fullscreenElement));
+    const onChange = () => {
+      const fs = Boolean(document.fullscreenElement);
+      setIsFullscreen(fs);
+      if (!fs) unlockOrientation();
+    };
     document.addEventListener("fullscreenchange", onChange);
     return () => document.removeEventListener("fullscreenchange", onChange);
   }, [open]);
@@ -256,8 +285,11 @@ export function WatchParty({
       void document.exitFullscreen?.();
     } else {
       // Unsupported on iOS Safari for non-video elements — the CSS overlay is
-      // already full-bleed there, so a no-op is fine.
-      void el.requestFullscreen?.().catch(() => {});
+      // already full-bleed there, so a no-op is fine. On Android, once we're
+      // in fullscreen, force landscape (best-effort) so video fills the screen.
+      const req = el.requestFullscreen?.();
+      if (req) req.then(lockLandscape).catch(() => {});
+      else lockLandscape();
     }
   }, []);
 
@@ -602,7 +634,7 @@ export function WatchParty({
           }}
           className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-black/60 text-white"
         >
-          <span className="flex h-20 w-20 items-center justify-center rounded-full bg-white/15 text-4xl backdrop-blur">
+          <span className="flex h-20 w-20 items-center justify-center rounded-full bg-white/15 text-4xl">
             ▶
           </span>
           <span className="text-sm font-semibold">Tap to start watching together</span>
@@ -634,7 +666,7 @@ export function WatchParty({
                 setChatVisible((v) => !v);
                 showControls();
               }}
-              className="flex h-9 w-9 items-center justify-center rounded-full bg-white/15 text-base text-white backdrop-blur hover:bg-white/25"
+              className="flex h-9 w-9 items-center justify-center rounded-full bg-white/15 text-base text-white hover:bg-white/25"
               title={chatVisible ? "Hide chat" : "Show chat"}
               aria-label="Toggle chat"
             >
@@ -647,7 +679,7 @@ export function WatchParty({
                 setAddOpen((v) => !v);
                 showControls();
               }}
-              className="flex h-9 w-9 items-center justify-center rounded-full bg-white/15 text-lg text-white backdrop-blur hover:bg-white/25"
+              className="flex h-9 w-9 items-center justify-center rounded-full bg-white/15 text-lg text-white hover:bg-white/25"
               title="Add a video"
               aria-label="Add a video"
             >
@@ -660,7 +692,7 @@ export function WatchParty({
                 toggleFullscreen();
                 showControls();
               }}
-              className="flex h-9 w-9 items-center justify-center rounded-full bg-white/15 text-base text-white backdrop-blur hover:bg-white/25"
+              className="flex h-9 w-9 items-center justify-center rounded-full bg-white/15 text-base text-white hover:bg-white/25"
               title={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
               aria-label="Toggle fullscreen"
             >
@@ -672,7 +704,7 @@ export function WatchParty({
                 e.stopPropagation();
                 onClose();
               }}
-              className="flex h-9 w-9 items-center justify-center rounded-full bg-white/15 text-lg text-white backdrop-blur hover:bg-white/25"
+              className="flex h-9 w-9 items-center justify-center rounded-full bg-white/15 text-lg text-white hover:bg-white/25"
               title="Exit watch party"
               aria-label="Exit watch party"
             >
@@ -755,7 +787,7 @@ export function WatchParty({
               <button
                 type="button"
                 onClick={toggleMute}
-                className="flex h-10 w-10 items-center justify-center rounded-full bg-white/12 text-lg backdrop-blur hover:bg-white/25"
+                className="flex h-10 w-10 items-center justify-center rounded-full bg-white/12 text-lg hover:bg-white/25"
                 aria-label={muted ? "Unmute" : "Mute"}
                 title={muted ? "Unmute" : "Mute"}
               >
@@ -782,7 +814,7 @@ export function WatchParty({
               <button
                 type="button"
                 onClick={() => void control("previous")}
-                className="flex h-11 w-11 items-center justify-center rounded-full bg-white/12 text-lg backdrop-blur hover:bg-white/25"
+                className="flex h-11 w-11 items-center justify-center rounded-full bg-white/12 text-lg hover:bg-white/25"
                 aria-label="Previous"
                 title="Previous"
               >
@@ -800,7 +832,7 @@ export function WatchParty({
                 type="button"
                 disabled={queue.length === 0}
                 onClick={() => void control("next")}
-                className="flex h-11 w-11 items-center justify-center rounded-full bg-white/12 text-lg backdrop-blur hover:bg-white/25 disabled:opacity-40"
+                className="flex h-11 w-11 items-center justify-center rounded-full bg-white/12 text-lg hover:bg-white/25 disabled:opacity-40"
                 aria-label="Next"
                 title={queue.length ? "Next" : "Nothing queued"}
               >
@@ -888,7 +920,7 @@ function AddVideoPanel({
 
   return (
     <div
-      className={`w-full rounded-2xl border border-white/10 bg-neutral-900/85 p-3 text-white shadow-2xl backdrop-blur ${
+      className={`w-full rounded-2xl border border-white/10 bg-neutral-900/85 p-3 text-white shadow-2xl ${
         centered ? "max-w-md" : ""
       }`}
     >
@@ -1053,14 +1085,11 @@ function ChatOverlay({
 
   return (
     <div className="flex h-full min-h-0 flex-col justify-end gap-2">
-      <div
-        className="flex flex-col justify-end gap-1 overflow-hidden"
-        style={{
-          maskImage: "linear-gradient(to top, #000 32%, transparent 100%)",
-          WebkitMaskImage: "linear-gradient(to top, #000 32%, transparent 100%)",
-        }}
-      >
-        {shown.map((m) => {
+      {/* Fade older messages via per-item opacity (NOT mask-image: a CSS mask
+          over the playing video forces an offscreen recomposite every frame,
+          which tanks iOS Safari to a few fps). */}
+      <div className="flex flex-col justify-end gap-1 overflow-hidden">
+        {shown.map((m, i) => {
           const mine = m.sender_id === currentUserId;
           const name = m.is_bot
             ? "🤖 swiggy"
@@ -1068,9 +1097,11 @@ function ChatOverlay({
               ? "You"
               : m.sender_name ?? "Them";
           const label = (m.body ?? "").trim() || `[${m.message_type}]`;
+          // Newest (bottom) fully opaque; older ones drift toward transparent.
+          const opacity = Math.min(1, 0.3 + ((i + 1) / shown.length) * 0.9);
           return (
-            <div key={m.id} className="flex">
-              <span className="inline-block rounded-lg bg-black/55 px-2 py-1 text-[13px] leading-snug text-white shadow-sm backdrop-blur-sm">
+            <div key={m.id} className="flex" style={{ opacity }}>
+              <span className="inline-block rounded-lg bg-black/60 px-2 py-1 text-[13px] leading-snug text-white shadow-sm">
                 <span
                   className={`font-bold ${mine ? "text-red-300" : "text-sky-300"}`}
                 >
@@ -1083,7 +1114,7 @@ function ChatOverlay({
         })}
         {shown.length === 0 && (
           <div className="flex">
-            <p className="rounded-lg bg-black/45 px-2 py-1 text-[13px] text-white/70 backdrop-blur-sm">
+            <p className="rounded-lg bg-black/45 px-2 py-1 text-[13px] text-white/70">
               Chat while you watch…
             </p>
           </div>
@@ -1095,7 +1126,7 @@ function ChatOverlay({
           value={text}
           onChange={(e) => setText(e.target.value)}
           placeholder="Say something…"
-          className="min-w-0 flex-1 rounded-full border border-white/15 bg-black/60 px-3 py-2 text-sm text-white outline-none backdrop-blur placeholder:text-white/50"
+          className="min-w-0 flex-1 rounded-full border border-white/15 bg-black/60 px-3 py-2 text-sm text-white outline-none placeholder:text-white/50"
         />
         <button
           type="submit"
