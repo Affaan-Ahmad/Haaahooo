@@ -39,6 +39,13 @@ type SkyBackgroundProps = {
   precip?: Precip;
   /** Scales particle counts. 1 = default, lower for very weak devices. */
   density?: number;
+  /**
+   * Freeze all animation. When a chat is open the sky sits behind
+   * backdrop-blur panels; a moving background forces the blur to
+   * re-rasterize every frame (measured ~30% fps hit). Pausing the sky
+   * lets the browser cache the blurred layer.
+   */
+  paused?: boolean;
 };
 
 /* ---------- deterministic pseudo-random (seeded, SSR-safe) ---------- */
@@ -137,6 +144,7 @@ function SkyBackgroundBase({
   phase: phaseProp,
   precip = "none",
   density = 1,
+  paused = false,
 }: SkyBackgroundProps) {
   // Client reads the time-of-day phase; server falls back to a deterministic
   // value that matches `theme`, so the first paint matches the markup and
@@ -162,7 +170,7 @@ function SkyBackgroundBase({
   return (
     <div
       aria-hidden
-      className="pointer-events-none absolute inset-0 overflow-hidden"
+      className={`pointer-events-none absolute inset-0 overflow-hidden${paused ? " sky-frozen" : ""}`}
       style={{
         background: GRADIENTS[phase],
         transition: "background 1200ms ease",
@@ -361,6 +369,9 @@ const skyKeyframes = `
 @media (prefers-reduced-motion: reduce) {
   [aria-hidden] [style*="animation"] { animation: none !important; }
 }
+/* Freeze every particle when a chat is open — stops the backdrop-blur
+   panels above from re-rasterizing the moving background each frame. */
+.sky-frozen [style*="animation"] { animation-play-state: paused !important; }
 `;
 
 /**

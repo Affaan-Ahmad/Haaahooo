@@ -2455,7 +2455,7 @@ export default function Home() {
 
   return (
     <main className="relative min-h-[100dvh] overflow-hidden p-0 md:p-4">
-      <SkyBackground theme={effectiveTheme} />
+      <SkyBackground theme={effectiveTheme} paused={Boolean(selectedChat)} />
       {isOffline && (
         <div className="fixed inset-x-0 top-0 z-50 bg-amber-500/95 px-3 py-1.5 text-center text-xs font-semibold text-black shadow-md">
           Offline — showing saved messages. New messages will sync when you reconnect.
