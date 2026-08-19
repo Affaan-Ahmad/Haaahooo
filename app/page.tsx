@@ -65,8 +65,6 @@ import {
 } from "@/lib/offlineCache";
 
 type MessageType = "text" | "image" | "video" | "audio";
-type ThemeMode = "auto" | "light" | "dark";
-type EffectiveTheme = "light" | "dark";
 type SidebarView = "chats" | "friends";
 
 type Profile = {
@@ -178,8 +176,13 @@ type MessageActionMenu = {
   y: number;
 };
 
-const THEME_STORAGE_KEY = "private-chat-theme-mode";
-const TRANSPARENCY_STORAGE_KEY = "private-chat-panel-opacity";
+const SKY_MODE_STORAGE_KEY = "haaahooo-sky-mode";
+type SkyMode = "stars" | "sundown" | "clouds";
+const SKY_MODES: { value: SkyMode; label: string; glyph: string }[] = [
+  { value: "stars", label: "Stars", glyph: "✦" },
+  { value: "sundown", label: "Sundown", glyph: "☀" },
+  { value: "clouds", label: "Clouds", glyph: "☁" },
+];
 const MEDIA_BUCKET = "chat-media";
 const USERNAME_PATTERN = /^[a-z0-9_]{3,24}$/;
 const CHAT_EMOJIS = [
@@ -188,11 +191,6 @@ const CHAT_EMOJIS = [
   "✨", "🔥", "👍", "👏", "🙏", "🎉", "☕", "🐮",
 ];
 const QUICK_REACTIONS = ["❤️", "😂", "😮", "😢", "👍", "🙏"];
-
-function getTimeBasedTheme(): EffectiveTheme {
-  const hour = new Date().getHours();
-  return hour >= 6 && hour < 18 ? "light" : "dark";
-}
 
 function safeFileName(name: string) {
   return name.replace(/[^a-zA-Z0-9._-]/g, "_");
@@ -261,10 +259,6 @@ function formatCallDuration(seconds: number) {
   return `${minutes}:${remainingSeconds}`;
 }
 
-function clampPanelOpacity(value: number) {
-  if (!Number.isFinite(value)) return 85;
-  return Math.min(100, Math.max(10, value));
-}
 
 function Avatar({
   name,
@@ -291,35 +285,30 @@ function Avatar({
   );
 }
 
-function ThemeButton({
-  label,
-  value,
+/** Soft-UI sky picker chips (Stars / Sundown / Clouds). */
+function SkyPicker({
   selected,
-  onClick,
-  isDark,
+  onChange,
 }: {
-  label: string;
-  value: ThemeMode;
-  selected: ThemeMode;
-  onClick: (value: ThemeMode) => void;
-  isDark: boolean;
+  selected: SkyMode;
+  onChange: (value: SkyMode) => void;
 }) {
   return (
-    <button
-      type="button"
-      onClick={() => onClick(value)}
-      className={`rounded-full px-3 py-2 text-sm font-semibold transition ${
-        selected === value
-          ? isDark
-            ? "bg-white text-slate-950"
-            : "bg-slate-950 text-white"
-          : isDark
-            ? "bg-white/10 hover:bg-white/20"
-            : "bg-slate-100 hover:bg-slate-200"
-      }`}
-    >
-      {label}
-    </button>
+    <div className="nm-raise-sm flex gap-1.5 rounded-full p-1.5">
+      {SKY_MODES.map((mode) => (
+        <button
+          key={mode.value}
+          type="button"
+          onClick={() => onChange(mode.value)}
+          aria-pressed={selected === mode.value}
+          className={`nm-press rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+            selected === mode.value ? "nm-accent" : "opacity-70 hover:opacity-100"
+          }`}
+        >
+          <span aria-hidden="true">{mode.glyph}</span> {mode.label}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -373,11 +362,9 @@ const Composer = memo(
     ComposerHandle,
     {
       placeholder: string;
-      inputClass: string;
-      isDark: boolean;
       onSend: (body: string) => Promise<boolean>;
     }
-  >(function Composer({ placeholder, inputClass, isDark, onSend }, ref) {
+  >(function Composer({ placeholder, onSend }, ref) {
     const [text, setText] = useState("");
 
     useImperativeHandle(
@@ -398,7 +385,7 @@ const Composer = memo(
       <>
         <input
           id="message-composer"
-          className={`h-11 min-w-0 flex-1 rounded-2xl border px-3 py-2 outline-none md:h-14 md:px-4 md:py-3 ${inputClass}`}
+          className="nm-field h-11 min-w-0 flex-1 rounded-2xl px-3 py-2 outline-none md:h-14 md:px-4 md:py-3"
           placeholder={placeholder}
           value={text}
           onChange={(event) => setText(event.target.value)}
@@ -409,7 +396,7 @@ const Composer = memo(
         <button
           onPointerDown={(event) => event.preventDefault()}
           onClick={() => void submit()}
-          className={`h-11 min-w-[4.5rem] shrink-0 rounded-2xl px-3 font-bold md:h-14 md:px-6 ${isDark ? "bg-violet-400 text-slate-950" : "bg-slate-950 text-white"}`}
+          className="nm-accent nm-press h-11 min-w-[4.5rem] shrink-0 rounded-2xl px-3 font-bold md:h-14 md:px-6"
         >
           Send
         </button>
@@ -487,12 +474,12 @@ const MessageRow = memo(function MessageRow({
           onPointerMove={(event) => handlers.current?.onPointerMove(event)}
           onPointerUp={(event) => handlers.current?.onPointerUp(event)}
           onPointerCancel={() => handlers.current?.onPointerCancel()}
-          className={`select-none rounded-3xl px-3.5 py-2.5 shadow-sm md:px-4 md:py-3 ${
+          className={`select-none rounded-3xl px-3.5 py-2.5 md:px-4 md:py-3 ${
             bot
               ? isDark ? "rounded-tl-md border border-amber-300/40 bg-amber-300/20 text-amber-50" : "rounded-tl-md border border-amber-300 bg-amber-100 text-amber-950"
               : mine
-                ? "rounded-br-md bg-violet-600 text-white shadow-lg shadow-violet-900/30"
-                : isDark ? "rounded-tl-md border border-white/10 bg-slate-900/70 text-white" : "rounded-tl-md border border-slate-200 bg-white text-slate-950"
+                ? "nm-accent rounded-br-md"
+                : "nm-raise rounded-tl-md"
           }`}
           style={{ touchAction: "pan-y" }}
         >
@@ -596,9 +583,7 @@ const ChatListItem = memo(function ChatListItem({
     <button
       onClick={() => onOpen.current?.(chat)}
       className={`mb-2 flex w-full min-w-0 max-w-full items-center gap-3 overflow-hidden rounded-2xl p-3 text-left transition ${
-        isActive
-          ? isDark ? "bg-white/15" : "bg-sky-100"
-          : isDark ? "hover:bg-white/10" : "hover:bg-white"
+        isActive ? "nm-inset" : "nm-press opacity-75 hover:opacity-100"
       }`}
     >
       <Avatar name={chat.display_name} isDark={isDark} />
@@ -696,9 +681,7 @@ export default function Home() {
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
 
-  const [themeMode, setThemeMode] = useState<ThemeMode>("auto");
-  const [timeTheme, setTimeTheme] = useState<EffectiveTheme>("light");
-  const [panelOpacity, setPanelOpacity] = useState(85);
+  const [skyMode, setSkyMode] = useState<SkyMode>("stars");
 
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
@@ -722,22 +705,17 @@ export default function Home() {
   const audioChunksRef = useRef<Blob[]>([]);
   const audioStreamRef = useRef<MediaStream | null>(null);
 
-  const effectiveTheme: EffectiveTheme =
-    themeMode === "auto" ? timeTheme : themeMode;
-  const isDark = effectiveTheme === "dark";
+  // Stars + Sundown are dark grounds; Clouds is light. The many isDark
+  // ternaries across the app keep working off this.
+  const isDark = skyMode !== "clouds";
+  // Menus (settings / jukebox / watch) aren't converted to soft-UI yet; they
+  // reuse `panel` for border/text and a solid neumorphic ground so their blur
+  // has nothing moving behind it.
   const panel = isDark
-    ? "border-white/10 bg-slate-950/85 text-white"
-    : "border-white/80 bg-white/85 text-slate-950";
-  const panelAlpha = clampPanelOpacity(panelOpacity) / 100;
-  const panelSurfaceStyle: CSSProperties = {
-    backgroundColor: isDark
-      ? `rgba(2, 6, 23, ${panelAlpha})`
-      : `rgba(255, 255, 255, ${panelAlpha})`,
-  };
+    ? "border-white/10 text-white"
+    : "border-slate-200 text-slate-950";
   const menuSurfaceStyle: CSSProperties = {
-    backgroundColor: isDark
-      ? "rgba(2, 6, 23, 0.96)"
-      : "rgba(255, 255, 255, 0.96)",
+    backgroundColor: "var(--nm-ground)",
   };
   const muted = isDark ? "text-white/55" : "text-slate-500";
   const inputClass = isDark
@@ -758,24 +736,18 @@ export default function Home() {
   });
 
   useEffect(() => {
-    const savedTheme = localStorage.getItem(THEME_STORAGE_KEY) as ThemeMode | null;
-    if (savedTheme === "auto" || savedTheme === "light" || savedTheme === "dark") {
-      setThemeMode(savedTheme);
+    const saved = localStorage.getItem(SKY_MODE_STORAGE_KEY);
+    if (saved === "stars" || saved === "sundown" || saved === "clouds") {
+      setSkyMode(saved);
     }
-
-    const savedPanelOpacity = Number(localStorage.getItem(TRANSPARENCY_STORAGE_KEY));
-    if (Number.isFinite(savedPanelOpacity)) {
-      setPanelOpacity(clampPanelOpacity(savedPanelOpacity));
-    }
-
-    setTimeTheme(getTimeBasedTheme());
-    const timer = window.setInterval(() => setTimeTheme(getTimeBasedTheme()), 60_000);
-    return () => window.clearInterval(timer);
   }, []);
 
+  // Persist + drive the palette. `data-sky` on <html> sets every neumorphic
+  // CSS variable (see globals.css), so the whole app re-skins from one attr.
   useEffect(() => {
-    localStorage.setItem(THEME_STORAGE_KEY, themeMode);
-  }, [themeMode]);
+    localStorage.setItem(SKY_MODE_STORAGE_KEY, skyMode);
+    document.documentElement.dataset.sky = skyMode;
+  }, [skyMode]);
 
   useEffect(() => {
     const update = () => setIsOffline(!navigator.onLine);
@@ -787,13 +759,6 @@ export default function Home() {
       window.removeEventListener("offline", update);
     };
   }, []);
-
-  useEffect(() => {
-    localStorage.setItem(
-      TRANSPARENCY_STORAGE_KEY,
-      String(clampPanelOpacity(panelOpacity)),
-    );
-  }, [panelOpacity]);
 
   useEffect(() => {
     void supabase.auth.getSession().then(({ data }) => {
@@ -2373,11 +2338,9 @@ export default function Home() {
   if (!session) {
     return (
       <main className="relative flex min-h-[100dvh] items-center justify-center overflow-hidden p-4">
-        <SkyBackground theme={effectiveTheme} />
-        <section
-          className={`glass relative z-10 w-full max-w-sm rounded-3xl border p-6 shadow-2xl backdrop-blur-xl ${panel}`}
-          style={panelSurfaceStyle}
-        >
+        <SkyBackground />
+        <section className="nm-raise relative z-10 w-full max-w-sm rounded-3xl p-6">
+
           <div className="mb-6 text-center">
             <img
               src="/icon-192.png"
@@ -2389,21 +2352,19 @@ export default function Home() {
           </div>
 
           <div className="mb-5 flex justify-center gap-2">
-            <ThemeButton label="Auto" value="auto" selected={themeMode} onClick={setThemeMode} isDark={isDark} />
-            <ThemeButton label="Light" value="light" selected={themeMode} onClick={setThemeMode} isDark={isDark} />
-            <ThemeButton label="Dark" value="dark" selected={themeMode} onClick={setThemeMode} isDark={isDark} />
+            <SkyPicker selected={skyMode} onChange={setSkyMode} />
           </div>
 
           {showSignup && (
             <>
               <input
-                className={`mb-3 w-full rounded-2xl border p-4 outline-none ${inputClass}`}
+                className="nm-field mb-3 w-full rounded-2xl p-4 outline-none"
                 placeholder="Display name"
                 value={signupDisplayName}
                 onChange={(event) => setSignupDisplayName(event.target.value)}
               />
               <input
-                className={`mb-3 w-full rounded-2xl border p-4 outline-none ${inputClass}`}
+                className="nm-field mb-3 w-full rounded-2xl p-4 outline-none"
                 placeholder="Username (e.g. affaan_24)"
                 value={signupUsername}
                 onChange={(event) => setSignupUsername(event.target.value.toLowerCase())}
@@ -2412,13 +2373,13 @@ export default function Home() {
           )}
 
           <input
-            className={`mb-3 w-full rounded-2xl border p-4 outline-none ${inputClass}`}
+            className="nm-field mb-3 w-full rounded-2xl p-4 outline-none"
             placeholder="Email"
             value={email}
             onChange={(event) => setEmail(event.target.value)}
           />
           <input
-            className={`mb-4 w-full rounded-2xl border p-4 outline-none ${inputClass}`}
+            className="nm-field mb-4 w-full rounded-2xl p-4 outline-none"
             placeholder="Password"
             type="password"
             value={password}
@@ -2430,9 +2391,7 @@ export default function Home() {
 
           <button
             onClick={() => void (showSignup ? signUp() : signIn())}
-            className={`mb-3 w-full rounded-2xl p-4 font-bold ${
-              isDark ? "bg-violet-400 text-slate-950" : "bg-slate-950 text-white"
-            }`}
+            className="nm-accent nm-press mb-3 w-full rounded-2xl p-4 font-bold"
           >
             {showSignup ? "Create account" : "Login"}
           </button>
@@ -2441,9 +2400,7 @@ export default function Home() {
               setShowSignup((current) => !current);
               setError("");
             }}
-            className={`w-full rounded-2xl border p-4 font-bold ${
-              isDark ? "border-white/15 bg-white/10" : "border-slate-200 bg-white"
-            }`}
+            className="nm-raise nm-press w-full rounded-2xl p-4 font-bold"
           >
             {showSignup ? "Back to login" : "Create an account"}
           </button>
@@ -2455,7 +2412,7 @@ export default function Home() {
 
   return (
     <main className="relative min-h-[100dvh] overflow-hidden p-0 md:p-4">
-      <SkyBackground theme={effectiveTheme} paused={Boolean(selectedChat)} />
+      <SkyBackground />
       {isOffline && (
         <div className="fixed inset-x-0 top-0 z-50 bg-amber-500/95 px-3 py-1.5 text-center text-xs font-semibold text-black shadow-md">
           Offline — showing saved messages. New messages will sync when you reconnect.
@@ -2627,16 +2584,14 @@ export default function Home() {
       </AnimatePresence>
 
       <div
-        className={`relative z-10 mx-auto grid h-[100dvh] w-full max-w-6xl grid-cols-[minmax(0,1fr)] overflow-hidden border cozy-ring md:h-[calc(100dvh-2rem)] md:grid-cols-[320px_minmax(0,1fr)] md:rounded-3xl ${panel}`}
-        style={{ backgroundColor: "transparent" }}
+        className="relative z-10 mx-auto grid h-[100dvh] w-full max-w-6xl grid-cols-[minmax(0,1fr)] overflow-hidden md:h-[calc(100dvh-2rem)] md:grid-cols-[320px_minmax(0,1fr)]"
       >
         <aside
-          style={panelSurfaceStyle}
-          className={`${panelOpacity <= 25 ? "backdrop-blur-none" : "backdrop-blur-md"} ${mobileChatOpen ? "hidden md:flex" : "flex"} min-h-0 min-w-0 w-full max-w-full flex-col overflow-hidden border-r ${
-            isDark ? "border-white/10" : "border-slate-200"
+          className={`${mobileChatOpen ? "hidden md:flex" : "flex"} min-h-0 min-w-0 w-full max-w-full flex-col overflow-hidden ${
+            isDark ? "md:border-r md:border-white/5" : "md:border-r md:border-black/5"
           }`}
         >
-          <header className={`mobile-safe-top relative z-50 flex items-center justify-between border-b px-3 py-2.5 md:p-4 ${isDark ? "border-white/10" : "border-slate-200"}`}>
+          <header className="nm-raise mobile-safe-top relative z-50 mx-2 mt-2 flex items-center justify-between rounded-2xl px-3 py-2.5 md:mx-3 md:mt-3 md:px-4">
             <div className="flex min-w-0 flex-1 items-center gap-3 overflow-hidden">
               <Avatar name={profile?.display_name ?? "H"} isDark={isDark} size="lg" />
               <div className="min-w-0 flex-1 overflow-hidden">
@@ -2646,7 +2601,7 @@ export default function Home() {
             </div>
             <button
               onClick={() => setSettingsOpen((current) => !current)}
-              className={`ml-2 flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${isDark ? "bg-white/10" : "bg-slate-100"}`}
+              className={`ml-2 flex h-10 w-10 shrink-0 items-center justify-center nm-raise-sm nm-press rounded-full`}
               aria-label="Open settings"
             >
               <Settings size={20} strokeWidth={2} aria-hidden="true" />
@@ -2673,34 +2628,9 @@ export default function Home() {
                     {profileStatus}
                   </p>
                 )}
-                <p className={`mb-2 text-xs font-bold uppercase ${muted}`}>Theme</p>
-                <div className="mb-3 grid grid-cols-3 gap-2">
-                  <ThemeButton label="Auto" value="auto" selected={themeMode} onClick={setThemeMode} isDark={isDark} />
-                  <ThemeButton label="Light" value="light" selected={themeMode} onClick={setThemeMode} isDark={isDark} />
-                  <ThemeButton label="Dark" value="dark" selected={themeMode} onClick={setThemeMode} isDark={isDark} />
-                </div>
-                <div className={`mb-3 rounded-xl p-3 ${isDark ? "bg-white/10" : "bg-slate-100"}`}>
-                  <div className="mb-2 flex items-center justify-between gap-3">
-                    <p className="text-sm font-bold">Transparency</p>
-                    <p className={`text-xs font-semibold ${muted}`}>{panelOpacity}%</p>
-                  </div>
-                  <input
-                    type="range"
-                    min="10"
-                    max="100"
-                    step="5"
-                    value={panelOpacity}
-                    onChange={(event) =>
-                      setPanelOpacity(
-                        clampPanelOpacity(Number(event.target.value)),
-                      )
-                    }
-                    className="w-full accent-violet-400"
-                    aria-label="Adjust app transparency"
-                  />
-                  <p className={`mt-1 text-[11px] ${muted}`}>
-                    Lower makes the chat shell more transparent.
-                  </p>
+                <p className={`mb-2 text-xs font-bold uppercase ${muted}`}>Sky</p>
+                <div className="mb-3">
+                  <SkyPicker selected={skyMode} onChange={setSkyMode} />
                 </div>
                 <button onClick={() => void enableNotifications()} className={`mb-2 w-full rounded-xl px-3 py-3 text-left font-semibold ${isDark ? "bg-white/10" : "bg-slate-100"}`}>
                   {notificationsOn ? "Notifications enabled" : "Enable notifications"}
@@ -2754,8 +2684,8 @@ export default function Home() {
           </header>
 
           <nav className="grid w-full min-w-0 grid-cols-2 gap-2 px-3 py-2 md:p-3" aria-label="Messenger sections">
-            <button onClick={() => setSidebarView("chats")} className={`min-w-0 rounded-xl px-2 py-2.5 text-center text-sm font-bold ${sidebarView === "chats" ? isDark ? "bg-violet-400 text-slate-950" : "bg-slate-950 text-white" : isDark ? "bg-white/10" : "bg-slate-100"}`}>Chats</button>
-            <button onClick={() => setSidebarView("friends")} className={`relative min-w-0 rounded-xl px-2 py-2.5 text-center text-sm font-bold ${sidebarView === "friends" ? isDark ? "bg-violet-400 text-slate-950" : "bg-slate-950 text-white" : isDark ? "bg-white/10" : "bg-slate-100"}`}>
+            <button onClick={() => setSidebarView("chats")} className={`nm-press min-w-0 rounded-xl px-2 py-2.5 text-center text-sm font-bold ${sidebarView === "chats" ? "nm-accent" : "nm-raise-sm"}`}>Chats</button>
+            <button onClick={() => setSidebarView("friends")} className={`nm-press relative min-w-0 rounded-xl px-2 py-2.5 text-center text-sm font-bold ${sidebarView === "friends" ? "nm-accent" : "nm-raise-sm"}`}>
               Friends
               {requests.length > 0 && <span className="ml-2 rounded-full bg-red-500 px-2 py-0.5 text-xs text-white">{requests.length}</span>}
             </button>
@@ -2839,13 +2769,12 @@ export default function Home() {
         </aside>
 
         <section
-          style={panelSurfaceStyle}
-          className={`${mobileChatOpen ? "flex chat-panel-enter" : "hidden md:flex"} ${panelOpacity <= 25 ? "backdrop-blur-none" : "backdrop-blur-md"} relative min-h-0 min-w-0 w-full max-w-full flex-col overflow-hidden`}
+          className={`${mobileChatOpen ? "flex chat-panel-enter" : "hidden md:flex"} relative min-h-0 min-w-0 w-full max-w-full flex-col overflow-hidden`}
         >
           {selectedChat ? (
             <>
               <header className={`mobile-safe-top relative z-10 flex min-h-14 items-center gap-2 border-b px-2.5 py-2 md:gap-3 md:p-4 ${isDark ? "border-white/10" : "border-slate-200"}`}>
-                <button onClick={closeMobileChat} className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-2xl md:hidden ${isDark ? "bg-white/10" : "bg-slate-100"}`} aria-label="Back to chats">‹</button>
+                <button onClick={closeMobileChat} className="nm-raise-sm nm-press flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-2xl md:hidden" aria-label="Back to chats">‹</button>
                 <Avatar name={selectedChat.display_name} isDark={isDark} />
                 <div className="min-w-0 flex-1">
                   <h2 className="font-display truncate font-extrabold">{selectedChat.display_name}</h2>
@@ -2861,9 +2790,7 @@ export default function Home() {
                   type="button"
                   disabled={voiceCall.phase !== "idle"}
                   onClick={() => void voiceCall.startCall(selectedChat)}
-                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full disabled:cursor-not-allowed disabled:opacity-40 ${
-                    isDark ? "bg-white/10" : "bg-slate-100"
-                  }`}
+                  className="nm-raise-sm nm-press flex h-10 w-10 shrink-0 items-center justify-center rounded-full disabled:cursor-not-allowed disabled:opacity-40"
                   aria-label={`Call ${selectedChat.display_name}`}
                   title="Voice call"
                 >
@@ -2876,7 +2803,7 @@ export default function Home() {
                     setMediaOpen(false);
                     setEmojiOpen(false);
                   }}
-                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${jukeboxOpen ? "bg-[#1DB954] text-black" : isDark ? "bg-white/10" : "bg-slate-100"}`}
+                  className={`nm-press flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${jukeboxOpen ? "bg-[#1DB954] text-black" : "nm-raise-sm"}`}
                   aria-label="Open shared jukebox"
                   title="Shared jukebox"
                 >
@@ -2890,7 +2817,7 @@ export default function Home() {
                     setMediaOpen(false);
                     setEmojiOpen(false);
                   }}
-                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${watchState?.videoId ? "bg-red-600 text-white" : isDark ? "bg-white/10" : "bg-slate-100"}`}
+                  className={`nm-press flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${watchState?.videoId ? "bg-red-600 text-white" : "nm-raise-sm"}`}
                   aria-label="Open watch party"
                   title="Watch YouTube together"
                 >
@@ -2903,7 +2830,7 @@ export default function Home() {
                     setMessagesLoading(true);
                     setMessageRefreshKey((current) => current + 1);
                   }}
-                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${isDark ? "bg-white/10" : "bg-slate-100"}`}
+                  className={`flex h-10 w-10 shrink-0 items-center justify-center nm-raise-sm nm-press rounded-full`}
                   aria-label="Refresh messages"
                   title="Refresh messages"
                 >
@@ -2925,7 +2852,7 @@ export default function Home() {
                     <button
                       type="button"
                       onClick={() => setJukeboxOpen(false)}
-                      className={`flex h-9 w-9 items-center justify-center rounded-full ${isDark ? "bg-white/10" : "bg-slate-100"}`}
+                      className={`flex h-9 w-9 items-center justify-center nm-raise-sm nm-press rounded-full`}
                       aria-label="Close jukebox"
                     >
                       ×
@@ -3216,7 +3143,7 @@ export default function Home() {
                 )}
               </AnimatePresence>
 
-              <footer className={`mobile-safe-bottom relative z-10 border-t px-2.5 py-2 md:p-4 ${isDark ? "border-white/10" : "border-slate-200"}`}>
+              <footer className="nm-raise mobile-safe-bottom relative z-10 mx-2 mb-2 rounded-2xl px-2.5 py-2.5 md:mx-3 md:mb-3 md:p-3">
                 {replyingTo && (
                   <div className={`mb-2 flex items-center gap-3 rounded-xl border-l-4 px-3 py-2 ${isDark ? "border-violet-300 bg-white/10" : "border-sky-500 bg-slate-100"}`}>
                     <div className="min-w-0 flex-1">
@@ -3235,7 +3162,7 @@ export default function Home() {
                     <button
                       type="button"
                       onClick={() => setReplyingTo(null)}
-                      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${isDark ? "bg-white/10" : "bg-white"}`}
+                      className="nm-raise-sm nm-press flex h-8 w-8 shrink-0 items-center justify-center rounded-full"
                       aria-label="Cancel reply"
                     >
                       <X size={16} strokeWidth={2} aria-hidden="true" />
@@ -3247,7 +3174,7 @@ export default function Home() {
                     <button
                       disabled={uploading || isRecording}
                       onClick={() => { setMediaOpen((current) => !current); setEmojiOpen(false); }}
-                      className={`flex h-11 w-11 items-center justify-center rounded-full disabled:opacity-50 md:h-12 md:w-12 ${isDark ? "bg-white/10" : "bg-white"}`}
+                      className="nm-raise-sm nm-press flex h-11 w-11 items-center justify-center rounded-full disabled:opacity-50 md:h-12 md:w-12"
                       aria-label="Open media menu"
                     >
                       <Plus size={22} strokeWidth={2} aria-hidden="true" />
@@ -3277,8 +3204,6 @@ export default function Home() {
                   <Composer
                     ref={composerRef}
                     placeholder={`Message ${selectedChat.display_name}`}
-                    inputClass={inputClass}
-                    isDark={isDark}
                     onSend={sendMessage}
                   />
                 </div>

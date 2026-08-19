@@ -2,15 +2,69 @@
 @import "tailwindcss";
 
 :root {
-  /* Faint violet-white paper — pure #fff reads flat/synthetic. */
-  --background: #fbfaff;
-  --foreground: #171717;
+  /* Default = Stars (the default sky mode) so first paint doesn't flash. */
+  --background: #1b1e30;
+  --foreground: #e7e8f5;
 
   /* Haaahooo identity */
   --brand: #a78bfa;        /* violet-400 */
   --brand-strong: #7c3aed; /* violet-600 */
   --radius: 1.25rem;
+
+  /* Neumorphic ground + dual shadows (Stars defaults; per-mode below). */
+  --nm-ground: #1b1e30;
+  --nm-sd: #12131f;
+  --nm-sl: #262a44;
+  --nm-accent: #a78bfa;
+  --nm-accent-ink: #16121f;
 }
+
+/* ===== Soft-UI palettes — Stars / Sundown / Clouds ===== */
+:root[data-sky="stars"] {
+  --background: #1b1e30; --foreground: #e7e8f5;
+  --nm-ground: #1b1e30; --nm-sd: #12131f; --nm-sl: #262a44;
+  --nm-accent: #a78bfa; --nm-accent-ink: #16121f;
+  --sky-a: #10121f; --sky-b: #1c1130;
+  --star: rgba(226,232,240,.9); --star-soft: rgba(167,139,250,.7);
+  --cloud: transparent; --glow: transparent;
+}
+:root[data-sky="sundown"] {
+  --background: #38304c; --foreground: #f4ecf3;
+  --nm-ground: #38304c; --nm-sd: #28223a; --nm-sl: #483f60;
+  --nm-accent: #fb7185; --nm-accent-ink: #2a0f18;
+  --sky-a: #241a3d; --sky-b: #e8a06a;
+  --star: rgba(255,224,194,.5); --star-soft: rgba(255,182,140,.5);
+  --cloud: transparent; --glow: rgba(255,158,84,.55);
+}
+:root[data-sky="clouds"] {
+  --background: #e5e8f1; --foreground: #2a2d40;
+  --nm-ground: #e5e8f1; --nm-sd: #c4c8d6; --nm-sl: #ffffff;
+  --nm-accent: #7c3aed; --nm-accent-ink: #ffffff;
+  --sky-a: #dfe6f5; --sky-b: #eef1f8;
+  --star: transparent; --star-soft: transparent;
+  --cloud: rgba(255,255,255,.92); --glow: transparent;
+}
+
+/* Neumorphic surface primitives — box-shadow only, never backdrop-filter. */
+.nm-raise { background: var(--nm-ground);
+  box-shadow: 6px 6px 14px var(--nm-sd), -6px -6px 14px var(--nm-sl); }
+.nm-raise-sm { background: var(--nm-ground);
+  box-shadow: 4px 4px 9px var(--nm-sd), -4px -4px 9px var(--nm-sl); }
+.nm-inset { background: var(--nm-ground);
+  box-shadow: inset 5px 5px 10px var(--nm-sd), inset -5px -5px 10px var(--nm-sl); }
+.nm-ground { background: var(--nm-ground); }
+.nm-field { background: var(--nm-ground); color: var(--foreground); border: 0;
+  box-shadow: inset 4px 4px 8px var(--nm-sd), inset -4px -4px 8px var(--nm-sl); }
+.nm-field::placeholder { color: var(--foreground); opacity: .42; }
+.nm-accent { background: var(--nm-accent); color: var(--nm-accent-ink);
+  box-shadow: 5px 5px 12px var(--nm-sd), -4px -4px 10px var(--nm-sl); }
+.nm-press { transition: box-shadow .12s ease, transform .12s ease; }
+.nm-press:active { box-shadow: inset 3px 3px 7px var(--nm-sd), inset -3px -3px 7px var(--nm-sl);
+  transform: translateY(1px); }
+
+/* static-sky motion (opacity/transform only) */
+@keyframes nmTwinkle { 0%,100% { opacity:.25; transform:scale(1); } 50% { opacity:1; transform:scale(1.6); } }
+@keyframes nmDrift { from { transform: translateX(-40vw); } to { transform: translateX(140vw); } }
 
 @theme inline {
   --color-background: var(--background);
