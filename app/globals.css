@@ -1,20 +1,100 @@
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&family=Inter:wght@400;500;600;700;800;900&display=swap");
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Default = Stars (the default sky mode) so first paint doesn't flash. */
+  --background: #1b1e30;
+  --foreground: #e7e8f5;
 
   /* Haaahooo identity */
   --brand: #a78bfa;        /* violet-400 */
   --brand-strong: #7c3aed; /* violet-600 */
   --radius: 1.25rem;
+
+  /* Neumorphic ground + dual shadows (Stars defaults; per-mode below). */
+  --nm-ground: #1b1e30;
+  --nm-sd: #12131f;
+  --nm-sl: #262a44;
+  --nm-accent: #a78bfa;
+  --nm-accent-ink: #16121f;
 }
+
+/* ===== Soft-UI palettes — Stars / Sundown / Clouds ===== */
+:root[data-sky="stars"] {
+  --background: #1b1e30; --foreground: #e7e8f5;
+  --nm-ground: #1b1e30; --nm-sd: #12131f; --nm-sl: #262a44;
+  --nm-accent: #a78bfa; --nm-accent-ink: #16121f;
+  --sky-a: #10121f; --sky-b: #1c1130;
+  --star: rgba(226,232,240,.9); --star-soft: rgba(167,139,250,.7);
+  --cloud: transparent; --glow: transparent;
+}
+:root[data-sky="sundown"] {
+  --background: #45384f; --foreground: #f4ecf3;
+  --nm-ground: #45384f; --nm-sd: #33283b; --nm-sl: #574863;
+  --nm-accent: #fb7185; --nm-accent-ink: #2a0f18;
+  /* Cohesive warm-dusk: sky stays within a narrow band of the ground, so
+     elements blend everywhere. A faint glow keeps a hint of horizon warmth
+     without a bright "day" zone the dark ground can't match. */
+  --sky-a: #3a2c48; --sky-b: #574152;
+  --star: rgba(255,224,194,.4); --star-soft: rgba(255,182,140,.4);
+  --cloud: transparent; --glow: rgba(255,150,90,.22);
+}
+:root[data-sky="clouds"] {
+  --background: #e5e8f1; --foreground: #2a2d40;
+  --nm-ground: #e5e8f1; --nm-sd: #c4c8d6; --nm-sl: #ffffff;
+  --nm-accent: #7c3aed; --nm-accent-ink: #ffffff;
+  --sky-a: #dfe6f5; --sky-b: #eef1f8;
+  --star: transparent; --star-soft: transparent;
+  --cloud: rgba(255,255,255,.92); --glow: transparent;
+}
+
+/* Neumorphic surface primitives — box-shadow only, never backdrop-filter.
+   The trailing ground-coloured halo feathers each element's silhouette into
+   the sky gradient, so edges melt rather than cutting a hard line. Shadows
+   transition so switching sky mode cross-fades smoothly. */
+.nm-raise { background: var(--nm-ground);
+  box-shadow: 6px 6px 16px var(--nm-sd), -6px -6px 16px var(--nm-sl),
+              0 0 22px 10px var(--nm-ground);
+  transition: box-shadow .5s ease, background .5s ease, color .5s ease; }
+.nm-raise-sm { background: var(--nm-ground);
+  box-shadow: 4px 4px 10px var(--nm-sd), -4px -4px 10px var(--nm-sl),
+              0 0 14px 6px var(--nm-ground);
+  transition: box-shadow .5s ease, background .5s ease, color .5s ease; }
+.nm-inset { background: var(--nm-ground);
+  box-shadow: inset 5px 5px 10px var(--nm-sd), inset -5px -5px 10px var(--nm-sl),
+              0 0 18px 8px var(--nm-ground);
+  transition: box-shadow .5s ease, background .5s ease; }
+.nm-ground { background: var(--nm-ground); transition: background .5s ease; }
+.nm-field { background: var(--nm-ground); color: var(--foreground); border: 0;
+  box-shadow: inset 4px 4px 8px var(--nm-sd), inset -4px -4px 8px var(--nm-sl),
+              0 0 16px 7px var(--nm-ground);
+  transition: box-shadow .5s ease, background .5s ease, color .5s ease; }
+.nm-field::placeholder { color: var(--foreground); opacity: .42; }
+.nm-accent { background: var(--nm-accent); color: var(--nm-accent-ink);
+  box-shadow: 5px 5px 12px var(--nm-sd), -4px -4px 10px var(--nm-sl),
+              0 0 18px 7px var(--nm-ground);
+  transition: box-shadow .5s ease, background .5s ease, color .5s ease; }
+.nm-press { transition: box-shadow .12s ease, transform .12s ease; }
+.nm-press:active { box-shadow: inset 3px 3px 7px var(--nm-sd), inset -3px -3px 7px var(--nm-sl);
+  transform: translateY(1px); }
+
+/* static-sky motion (opacity/transform only) */
+@keyframes nmTwinkle { 0%,100% { opacity:.25; transform:scale(1); } 50% { opacity:1; transform:scale(1.6); } }
+@keyframes nmDrift { from { transform: translateX(-40vw); } to { transform: translateX(140vw); } }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: "Inter", "Segoe UI", system-ui, -apple-system, Arial, sans-serif;
+  /* Display face — the wordmark + headings. Body stays Inter. */
+  --font-display: "Bricolage Grotesque", "Inter", system-ui, sans-serif;
+}
+
+/* Wordmark + headline voice. Tailwind's font-black maps weight; this sets
+   the family so headings stop sharing the body font (one-font = template). */
+.font-display {
+  font-family: var(--font-display);
+  letter-spacing: -0.01em;
 }
 
 * {
@@ -49,32 +129,7 @@ button {
   cursor: pointer;
 }
 
-/* Soft-glass surface helpers. These only add border/blur/shadow polish;
-   panel background colour is still driven by the inline panelSurfaceStyle /
-   menuSurfaceStyle in page.tsx, so the transparency slider is unaffected. */
-.glass {
-  backdrop-filter: blur(18px) saturate(140%);
-  -webkit-backdrop-filter: blur(18px) saturate(140%);
-  box-shadow:
-    0 10px 40px -12px rgba(15, 12, 41, 0.35),
-    inset 0 1px 0 rgba(255, 255, 255, 0.18);
-}
-
-.glass-menu {
-  backdrop-filter: blur(22px) saturate(150%);
-  -webkit-backdrop-filter: blur(22px) saturate(150%);
-  box-shadow:
-    0 18px 50px -14px rgba(15, 12, 41, 0.5),
-    inset 0 1px 0 rgba(255, 255, 255, 0.2);
-}
-
-.cozy-ring {
-  box-shadow:
-    0 24px 70px -24px rgba(76, 29, 149, 0.45),
-    inset 0 1px 0 rgba(255, 255, 255, 0.16);
-}
-
-/* Range slider (transparency) themed to the violet identity */
+/* Range slider (jukebox seek bar) themed to the violet identity */
 input[type="range"] {
   -webkit-appearance: none;
   appearance: none;

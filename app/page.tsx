@@ -1,7 +1,10 @@
 "use client";
 
 import {
+  forwardRef,
+  memo,
   useEffect,
+  useImperativeHandle,
   useMemo,
   useRef,
   useState,
@@ -18,6 +21,27 @@ import {
 } from "@/lib/clientNotifications";
 import { useVoiceCall } from "@/lib/useVoiceCall";
 import { AnimatePresence, motion } from "motion/react";
+import {
+  Camera,
+  Check,
+  CheckCheck,
+  Clapperboard,
+  Hand,
+  MessageCircle,
+  Mic,
+  MicOff,
+  Music,
+  Phone,
+  PhoneOff,
+  Plus,
+  Reply,
+  RotateCw,
+  Settings,
+  Smile,
+  Sparkles,
+  Video,
+  X,
+} from "lucide-react";
 import { SkyBackground } from "@/components/sky/SkyBackground";
 import {
   MenuPop,
@@ -41,8 +65,6 @@ import {
 } from "@/lib/offlineCache";
 
 type MessageType = "text" | "image" | "video" | "audio";
-type ThemeMode = "auto" | "light" | "dark";
-type EffectiveTheme = "light" | "dark";
 type SidebarView = "chats" | "friends";
 
 type Profile = {
@@ -154,8 +176,13 @@ type MessageActionMenu = {
   y: number;
 };
 
-const THEME_STORAGE_KEY = "private-chat-theme-mode";
-const TRANSPARENCY_STORAGE_KEY = "private-chat-panel-opacity";
+const SKY_MODE_STORAGE_KEY = "haaahooo-sky-mode";
+type SkyMode = "stars" | "sundown" | "clouds";
+const SKY_MODES: { value: SkyMode; label: string; glyph: string }[] = [
+  { value: "stars", label: "Stars", glyph: "✦" },
+  { value: "sundown", label: "Sundown", glyph: "☀" },
+  { value: "clouds", label: "Clouds", glyph: "☁" },
+];
 const MEDIA_BUCKET = "chat-media";
 const USERNAME_PATTERN = /^[a-z0-9_]{3,24}$/;
 const CHAT_EMOJIS = [
@@ -164,11 +191,6 @@ const CHAT_EMOJIS = [
   "✨", "🔥", "👍", "👏", "🙏", "🎉", "☕", "🐮",
 ];
 const QUICK_REACTIONS = ["❤️", "😂", "😮", "😢", "👍", "🙏"];
-
-function getTimeBasedTheme(): EffectiveTheme {
-  const hour = new Date().getHours();
-  return hour >= 6 && hour < 18 ? "light" : "dark";
-}
 
 function safeFileName(name: string) {
   return name.replace(/[^a-zA-Z0-9._-]/g, "_");
@@ -237,10 +259,6 @@ function formatCallDuration(seconds: number) {
   return `${minutes}:${remainingSeconds}`;
 }
 
-function clampPanelOpacity(value: number) {
-  if (!Number.isFinite(value)) return 85;
-  return Math.min(100, Math.max(10, value));
-}
 
 function Avatar({
   name,
@@ -267,35 +285,30 @@ function Avatar({
   );
 }
 
-function ThemeButton({
-  label,
-  value,
+/** Soft-UI sky picker chips (Stars / Sundown / Clouds). */
+function SkyPicker({
   selected,
-  onClick,
-  isDark,
+  onChange,
 }: {
-  label: string;
-  value: ThemeMode;
-  selected: ThemeMode;
-  onClick: (value: ThemeMode) => void;
-  isDark: boolean;
+  selected: SkyMode;
+  onChange: (value: SkyMode) => void;
 }) {
   return (
-    <button
-      type="button"
-      onClick={() => onClick(value)}
-      className={`rounded-full px-3 py-2 text-sm font-semibold transition ${
-        selected === value
-          ? isDark
-            ? "bg-white text-slate-950"
-            : "bg-slate-950 text-white"
-          : isDark
-            ? "bg-white/10 hover:bg-white/20"
-            : "bg-slate-100 hover:bg-slate-200"
-      }`}
-    >
-      {label}
-    </button>
+    <div className="nm-raise-sm flex gap-1.5 rounded-full p-1.5">
+      {SKY_MODES.map((mode) => (
+        <button
+          key={mode.value}
+          type="button"
+          onClick={() => onChange(mode.value)}
+          aria-pressed={selected === mode.value}
+          className={`nm-press rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+            selected === mode.value ? "nm-accent" : "opacity-70 hover:opacity-100"
+          }`}
+        >
+          <span aria-hidden="true">{mode.glyph}</span> {mode.label}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -330,6 +343,258 @@ function MessageContent({ message }: { message: Message }) {
 
   return <audio src={message.file_url} controls className="max-w-full" />;
 }
+
+/**
+ * Composer — the message input + Send button.
+ *
+ * Owns `text` LOCALLY so a keystroke re-renders only this small component,
+ * not the whole Home page (chat list, message thread, sky…). Before this
+ * split every character typed reconciled the entire 3k-line tree.
+ *
+ * `onSend` returns whether the send succeeded: the field clears optimistically
+ * and restores the text if the send fails. Emoji insertion (the picker lives
+ * in the parent) reaches in through the imperative `insertEmoji` handle.
+ */
+export type ComposerHandle = { insertEmoji: (emoji: string) => void };
+
+const Composer = memo(
+  forwardRef<
+    ComposerHandle,
+    {
+      placeholder: string;
+      onSend: (body: string) => Promise<boolean>;
+    }
+  >(function Composer({ placeholder, onSend }, ref) {
+    const [text, setText] = useState("");
+
+    useImperativeHandle(
+      ref,
+      () => ({ insertEmoji: (emoji) => setText((current) => `${current}${emoji}`) }),
+      [],
+    );
+
+    async function submit() {
+      const body = text.trim();
+      if (!body) return;
+      setText(""); // optimistic clear
+      const ok = await onSend(body);
+      if (!ok) setText(body); // restore on failure
+    }
+
+    return (
+      <>
+        <input
+          id="message-composer"
+          className="nm-field h-11 min-w-0 flex-1 rounded-2xl px-3 py-2 outline-none md:h-14 md:px-4 md:py-3"
+          placeholder={placeholder}
+          value={text}
+          onChange={(event) => setText(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") void submit();
+          }}
+        />
+        <button
+          onPointerDown={(event) => event.preventDefault()}
+          onClick={() => void submit()}
+          className="nm-accent nm-press h-11 min-w-[4.5rem] shrink-0 rounded-2xl px-3 font-bold md:h-14 md:px-6"
+        >
+          Send
+        </button>
+      </>
+    );
+  }),
+);
+
+/** Stable empty array so no-reaction rows keep a constant `reactions` prop. */
+const EMPTY_REACTIONS: MessageReaction[] = [];
+
+type RowHandlers = {
+  onContextMenu: (event: ReactMouseEvent<HTMLDivElement>, message: Message) => void;
+  onPointerDown: (event: ReactPointerEvent<HTMLDivElement>, message: Message) => void;
+  onPointerMove: (event: ReactPointerEvent<HTMLDivElement>) => void;
+  onPointerUp: (event: ReactPointerEvent<HTMLDivElement>) => void;
+  onPointerCancel: () => void;
+  onToggleReaction: (message: Message, emoji: string) => void;
+};
+
+/**
+ * MessageRow — one chat bubble, memoized.
+ *
+ * The thread can hold hundreds of these. Before this split, anything that
+ * re-rendered Home (a new message, the 15s presence tick, a realtime event)
+ * reconciled every bubble. Now each row's props are stable while its message
+ * is unchanged, so `memo` skips the untouched ones and only new/changed
+ * bubbles render. Gesture + reaction callbacks arrive through a stable ref
+ * (`handlers`) so they never break memoization.
+ */
+const MessageRow = memo(function MessageRow({
+  message,
+  mine,
+  bot,
+  isDark,
+  seen,
+  isLatestOwn,
+  reactions,
+  repliedMessage,
+  friendName,
+  myUserId,
+  suppressAnim,
+  handlers,
+}: {
+  message: Message;
+  mine: boolean;
+  bot: boolean;
+  isDark: boolean;
+  seen: boolean;
+  isLatestOwn: boolean;
+  reactions: MessageReaction[];
+  repliedMessage: Message | null;
+  friendName: string;
+  myUserId: string;
+  suppressAnim: boolean;
+  handlers: { current: RowHandlers | null };
+}) {
+  const reactionSummary = reactions.reduce<Record<string, number>>(
+    (summary, reaction) => {
+      summary[reaction.emoji] = (summary[reaction.emoji] ?? 0) + 1;
+      return summary;
+    },
+    {},
+  );
+
+  return (
+    <MessageIn
+      className={`mb-2.5 flex md:mb-3 ${mine && !bot ? "justify-end" : "justify-start"}`}
+      {...(suppressAnim ? { initial: false as const } : {})}
+    >
+      <div className={`flex max-w-[88%] flex-col md:max-w-[72%] ${mine && !bot ? "items-end" : "items-start"}`}>
+        <div
+          onContextMenu={(event) => handlers.current?.onContextMenu(event, message)}
+          onPointerDown={(event) => handlers.current?.onPointerDown(event, message)}
+          onPointerMove={(event) => handlers.current?.onPointerMove(event)}
+          onPointerUp={(event) => handlers.current?.onPointerUp(event)}
+          onPointerCancel={() => handlers.current?.onPointerCancel()}
+          className={`select-none rounded-3xl px-3.5 py-2.5 md:px-4 md:py-3 ${
+            bot
+              ? isDark ? "rounded-tl-md border border-amber-300/40 bg-amber-300/20 text-amber-50" : "rounded-tl-md border border-amber-300 bg-amber-100 text-amber-950"
+              : mine
+                ? "nm-accent rounded-br-md"
+                : "nm-raise rounded-tl-md"
+          }`}
+          style={{ touchAction: "pan-y" }}
+        >
+          {bot && <p className={`mb-1 text-xs font-black uppercase ${isDark ? "text-amber-300" : "text-amber-700"}`}>{message.sender_name ?? "Swiggy"}</p>}
+          {message.reply_to_message_id && (
+            <button
+              type="button"
+              className="mb-2 block w-full min-w-0 rounded-xl border-l-4 border-current bg-black/10 px-3 py-2 text-left"
+              onClick={() => {
+                const target = document.getElementById(
+                  `message-${message.reply_to_message_id}`,
+                );
+                target?.scrollIntoView({ behavior: "smooth", block: "center" });
+              }}
+            >
+              <span className="block truncate text-xs font-black opacity-75">
+                {repliedMessage
+                  ? repliedMessage.is_bot
+                    ? repliedMessage.sender_name ?? "Swiggy"
+                    : repliedMessage.sender_id === myUserId
+                      ? "You"
+                      : friendName
+                  : "Original message"}
+              </span>
+              <span className="block max-w-full truncate text-xs opacity-65">
+                {repliedMessage
+                  ? getMessagePreview(repliedMessage)
+                  : "Message unavailable"}
+              </span>
+            </button>
+          )}
+          <div id={`message-${message.id}`}>
+            <MessageContent message={message} />
+          </div>
+          <div className="mt-2 flex items-center justify-end gap-1.5 text-xs opacity-50">
+            <span>
+              {new Date(message.created_at).toLocaleTimeString([], {
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
+            </span>
+            {mine && !bot && isLatestOwn && (
+              <span
+                className={`inline-flex items-center gap-0.5 ${
+                  seen ? "font-bold text-cyan-700" : ""
+                }`}
+              >
+                {seen ? (
+                  <CheckCheck size={13} strokeWidth={2.5} aria-hidden="true" />
+                ) : (
+                  <Check size={13} strokeWidth={2.5} aria-hidden="true" />
+                )}
+                {seen ? "Seen" : "Sent"}
+              </span>
+            )}
+          </div>
+        </div>
+        {Object.keys(reactionSummary).length > 0 && (
+          <div className={`-mt-1 flex flex-wrap gap-1 rounded-full border px-1.5 py-0.5 text-sm shadow-sm ${isDark ? "border-white/10 bg-slate-900" : "border-slate-200 bg-white"}`}>
+            {Object.entries(reactionSummary).map(([emoji, count]) => (
+              <button
+                type="button"
+                key={emoji}
+                onClick={() => handlers.current?.onToggleReaction(message, emoji)}
+                className="rounded-full px-1"
+                title={`${count} reaction${count === 1 ? "" : "s"}`}
+              >
+                {emoji}
+                {count > 1 && (
+                  <span className="ml-0.5 text-[10px] opacity-60">{count}</span>
+                )}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </MessageIn>
+  );
+});
+
+/**
+ * ChatListItem — one row in the sidebar chat list, memoized.
+ *
+ * Few rows, so the win is small — but it means a realtime `last_message`
+ * update on one chat, or the presence tick, no longer re-renders every row.
+ * `onOpen` arrives via a stable ref so memoization holds.
+ */
+const ChatListItem = memo(function ChatListItem({
+  chat,
+  isActive,
+  isDark,
+  onOpen,
+}: {
+  chat: Chat;
+  isActive: boolean;
+  isDark: boolean;
+  onOpen: { current: ((chat: Chat) => void) | null };
+}) {
+  const muted = isDark ? "text-white/55" : "text-slate-500";
+  return (
+    <button
+      onClick={() => onOpen.current?.(chat)}
+      className={`mb-2 flex w-full min-w-0 max-w-full items-center gap-3 overflow-hidden rounded-2xl p-3 text-left transition ${
+        isActive ? "nm-inset" : "nm-press opacity-75 hover:opacity-100"
+      }`}
+    >
+      <Avatar name={chat.display_name} isDark={isDark} />
+      <div className="min-w-0 flex-1">
+        <p className="truncate font-bold">{chat.display_name}</p>
+        <p className={`truncate text-xs ${muted}`}>{chat.last_message ?? `@${chat.username}`}</p>
+      </div>
+      {chat.last_message_at && <span className={`hidden shrink-0 text-[10px] min-[360px]:block ${muted}`}>{new Date(chat.last_message_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>}
+    </button>
+  );
+});
 
 export default function Home() {
   const [session, setSession] = useState<Session | null>(null);
@@ -383,7 +648,12 @@ export default function Home() {
   const [friendLastReadAt, setFriendLastReadAt] = useState<string | null>(null);
   const [friendLastSeenAt, setFriendLastSeenAt] = useState<string | null>(null);
   const [presenceClock, setPresenceClock] = useState(Date.now());
-  const [text, setText] = useState("");
+  const composerRef = useRef<ComposerHandle>(null);
+  // Latest gesture/reaction callbacks in a stable ref, so memoized MessageRows
+  // never re-render just because these closures were recreated. Synced in an
+  // effect below (the handlers are declared later in this component).
+  const rowHandlers = useRef<RowHandlers | null>(null);
+  const openChatRef = useRef<((chat: Chat) => void) | null>(null);
   const [error, setError] = useState("");
   const [uploading, setUploading] = useState(false);
   const [notificationsOn, setNotificationsOn] = useState(false);
@@ -411,9 +681,7 @@ export default function Home() {
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
 
-  const [themeMode, setThemeMode] = useState<ThemeMode>("auto");
-  const [timeTheme, setTimeTheme] = useState<EffectiveTheme>("light");
-  const [panelOpacity, setPanelOpacity] = useState(85);
+  const [skyMode, setSkyMode] = useState<SkyMode>("stars");
 
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
@@ -437,27 +705,19 @@ export default function Home() {
   const audioChunksRef = useRef<Blob[]>([]);
   const audioStreamRef = useRef<MediaStream | null>(null);
 
-  const effectiveTheme: EffectiveTheme =
-    themeMode === "auto" ? timeTheme : themeMode;
-  const isDark = effectiveTheme === "dark";
+  // Stars + Sundown are dark grounds; Clouds is light. The many isDark
+  // ternaries across the app keep working off this.
+  const isDark = skyMode !== "clouds";
+  // Menus (settings / jukebox / watch) aren't converted to soft-UI yet; they
+  // reuse `panel` for border/text and a solid neumorphic ground so their blur
+  // has nothing moving behind it.
   const panel = isDark
-    ? "border-white/10 bg-slate-950/85 text-white"
-    : "border-white/80 bg-white/85 text-slate-950";
-  const panelAlpha = clampPanelOpacity(panelOpacity) / 100;
-  const panelSurfaceStyle: CSSProperties = {
-    backgroundColor: isDark
-      ? `rgba(2, 6, 23, ${panelAlpha})`
-      : `rgba(255, 255, 255, ${panelAlpha})`,
-  };
+    ? "border-white/10 text-white"
+    : "border-slate-200 text-slate-950";
   const menuSurfaceStyle: CSSProperties = {
-    backgroundColor: isDark
-      ? "rgba(2, 6, 23, 0.96)"
-      : "rgba(255, 255, 255, 0.96)",
+    backgroundColor: "var(--nm-ground)",
   };
   const muted = isDark ? "text-white/55" : "text-slate-500";
-  const inputClass = isDark
-    ? "border-white/10 bg-white/10 text-white placeholder:text-white/40 focus:border-violet-300"
-    : "border-slate-200 bg-white text-slate-950 placeholder:text-slate-400 focus:border-sky-400";
   const friendPresenceText = formatLastSeen(friendLastSeenAt, presenceClock);
   const friendIsOnline = friendPresenceText === "Online";
   const latestOwnMessageId =
@@ -473,24 +733,18 @@ export default function Home() {
   });
 
   useEffect(() => {
-    const savedTheme = localStorage.getItem(THEME_STORAGE_KEY) as ThemeMode | null;
-    if (savedTheme === "auto" || savedTheme === "light" || savedTheme === "dark") {
-      setThemeMode(savedTheme);
+    const saved = localStorage.getItem(SKY_MODE_STORAGE_KEY);
+    if (saved === "stars" || saved === "sundown" || saved === "clouds") {
+      setSkyMode(saved);
     }
-
-    const savedPanelOpacity = Number(localStorage.getItem(TRANSPARENCY_STORAGE_KEY));
-    if (Number.isFinite(savedPanelOpacity)) {
-      setPanelOpacity(clampPanelOpacity(savedPanelOpacity));
-    }
-
-    setTimeTheme(getTimeBasedTheme());
-    const timer = window.setInterval(() => setTimeTheme(getTimeBasedTheme()), 60_000);
-    return () => window.clearInterval(timer);
   }, []);
 
+  // Persist + drive the palette. `data-sky` on <html> sets every neumorphic
+  // CSS variable (see globals.css), so the whole app re-skins from one attr.
   useEffect(() => {
-    localStorage.setItem(THEME_STORAGE_KEY, themeMode);
-  }, [themeMode]);
+    localStorage.setItem(SKY_MODE_STORAGE_KEY, skyMode);
+    document.documentElement.dataset.sky = skyMode;
+  }, [skyMode]);
 
   useEffect(() => {
     const update = () => setIsOffline(!navigator.onLine);
@@ -502,13 +756,6 @@ export default function Home() {
       window.removeEventListener("offline", update);
     };
   }, []);
-
-  useEffect(() => {
-    localStorage.setItem(
-      TRANSPARENCY_STORAGE_KEY,
-      String(clampPanelOpacity(panelOpacity)),
-    );
-  }, [panelOpacity]);
 
   useEffect(() => {
     void supabase.auth.getSession().then(({ data }) => {
@@ -1783,6 +2030,20 @@ export default function Home() {
     gestureRef.current = null;
   }
 
+  // Keep the stable handlers ref pointing at the latest closures. No dep array:
+  // runs after every render so MessageRow always calls current logic.
+  useEffect(() => {
+    rowHandlers.current = {
+      onContextMenu: handleMessageContextMenu,
+      onPointerDown: handleMessagePointerDown,
+      onPointerMove: handleMessagePointerMove,
+      onPointerUp: handleMessagePointerUp,
+      onPointerCancel: cancelMessageGesture,
+      onToggleReaction: toggleReaction,
+    };
+    openChatRef.current = openChat;
+  });
+
   async function toggleReaction(message: Message, emoji: string) {
     if (!session) return;
     setMessageActionMenu(null);
@@ -1868,18 +2129,19 @@ export default function Home() {
     }
   }
 
-  async function sendMessage() {
-    const body = text.trim();
-    if (!body || !session || !selectedChat) return;
+  // Returns true on success. The Composer owns the input text now, so it
+  // clears optimistically and restores from this return value on failure.
+  async function sendMessage(body: string): Promise<boolean> {
+    const trimmed = body.trim();
+    if (!trimmed || !session || !selectedChat) return false;
     const replyToMessageId = replyingTo?.id ?? null;
-    setText("");
     setError("");
     shouldAutoScrollRef.current = true;
     setShowScrollButton(false);
 
     const { error: messageError } = await supabase.from("messages").insert({
       conversation_id: selectedChat.conversation_id,
-      body,
+      body: trimmed,
       sender_id: session.user.id,
       message_type: "text",
       is_bot: false,
@@ -1888,14 +2150,13 @@ export default function Home() {
 
     if (messageError) {
       setError(messageError.message);
-      setText(body);
-      return;
+      return false;
     }
 
     setReplyingTo(null);
     await sendPushNotification("text", selectedChat.conversation_id);
 
-    if (/(^|\s)@swiggy\b/i.test(body)) {
+    if (/(^|\s)@swiggy\b/i.test(trimmed)) {
       const {
         data: { session: currentSession },
       } = await supabase.auth.getSession();
@@ -1906,7 +2167,7 @@ export default function Home() {
           Authorization: `Bearer ${currentSession?.access_token ?? ""}`,
         },
         body: JSON.stringify({
-          message: body,
+          message: trimmed,
           conversationId: selectedChat.conversation_id,
         }),
       });
@@ -1918,6 +2179,8 @@ export default function Home() {
         setError(result?.message ?? "Swiggy could not reply right now.");
       }
     }
+
+    return true;
   }
 
   async function uploadFile(file: File, forcedType?: MessageType) {
@@ -2072,37 +2335,33 @@ export default function Home() {
   if (!session) {
     return (
       <main className="relative flex min-h-[100dvh] items-center justify-center overflow-hidden p-4">
-        <SkyBackground theme={effectiveTheme} />
-        <section
-          className={`glass relative z-10 w-full max-w-sm rounded-3xl border p-6 shadow-2xl backdrop-blur-xl ${panel}`}
-          style={panelSurfaceStyle}
-        >
+        <SkyBackground />
+        <section className="nm-raise relative z-10 w-full max-w-sm rounded-3xl p-6">
+
           <div className="mb-6 text-center">
             <img
               src="/icon-192.png"
               alt="Haaahooo"
               className="mx-auto mb-3 h-20 w-20 rounded-3xl shadow-lg"
             />
-            <h1 className="text-3xl font-black">Haaahooo</h1>
+            <h1 className="font-display text-4xl font-extrabold">Haaahooo</h1>
             <p className={`mt-2 ${muted}`}>Private chats with the people you choose.</p>
           </div>
 
           <div className="mb-5 flex justify-center gap-2">
-            <ThemeButton label="Auto" value="auto" selected={themeMode} onClick={setThemeMode} isDark={isDark} />
-            <ThemeButton label="Light" value="light" selected={themeMode} onClick={setThemeMode} isDark={isDark} />
-            <ThemeButton label="Dark" value="dark" selected={themeMode} onClick={setThemeMode} isDark={isDark} />
+            <SkyPicker selected={skyMode} onChange={setSkyMode} />
           </div>
 
           {showSignup && (
             <>
               <input
-                className={`mb-3 w-full rounded-2xl border p-4 outline-none ${inputClass}`}
+                className="nm-field mb-3 w-full rounded-2xl p-4 outline-none"
                 placeholder="Display name"
                 value={signupDisplayName}
                 onChange={(event) => setSignupDisplayName(event.target.value)}
               />
               <input
-                className={`mb-3 w-full rounded-2xl border p-4 outline-none ${inputClass}`}
+                className="nm-field mb-3 w-full rounded-2xl p-4 outline-none"
                 placeholder="Username (e.g. affaan_24)"
                 value={signupUsername}
                 onChange={(event) => setSignupUsername(event.target.value.toLowerCase())}
@@ -2111,13 +2370,13 @@ export default function Home() {
           )}
 
           <input
-            className={`mb-3 w-full rounded-2xl border p-4 outline-none ${inputClass}`}
+            className="nm-field mb-3 w-full rounded-2xl p-4 outline-none"
             placeholder="Email"
             value={email}
             onChange={(event) => setEmail(event.target.value)}
           />
           <input
-            className={`mb-4 w-full rounded-2xl border p-4 outline-none ${inputClass}`}
+            className="nm-field mb-4 w-full rounded-2xl p-4 outline-none"
             placeholder="Password"
             type="password"
             value={password}
@@ -2129,9 +2388,7 @@ export default function Home() {
 
           <button
             onClick={() => void (showSignup ? signUp() : signIn())}
-            className={`mb-3 w-full rounded-2xl p-4 font-bold ${
-              isDark ? "bg-violet-400 text-slate-950" : "bg-slate-950 text-white"
-            }`}
+            className="nm-accent nm-press mb-3 w-full rounded-2xl p-4 font-bold"
           >
             {showSignup ? "Create account" : "Login"}
           </button>
@@ -2140,9 +2397,7 @@ export default function Home() {
               setShowSignup((current) => !current);
               setError("");
             }}
-            className={`w-full rounded-2xl border p-4 font-bold ${
-              isDark ? "border-white/15 bg-white/10" : "border-slate-200 bg-white"
-            }`}
+            className="nm-raise nm-press w-full rounded-2xl p-4 font-bold"
           >
             {showSignup ? "Back to login" : "Create an account"}
           </button>
@@ -2154,7 +2409,7 @@ export default function Home() {
 
   return (
     <main className="relative min-h-[100dvh] overflow-hidden p-0 md:p-4">
-      <SkyBackground theme={effectiveTheme} />
+      <SkyBackground />
       {isOffline && (
         <div className="fixed inset-x-0 top-0 z-50 bg-amber-500/95 px-3 py-1.5 text-center text-xs font-semibold text-black shadow-md">
           Offline — showing saved messages. New messages will sync when you reconnect.
@@ -2174,7 +2429,7 @@ export default function Home() {
           className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/80 p-4 backdrop-blur-md"
         >
           <OverlayPop
-            className={`glass-menu mobile-safe-top mobile-safe-bottom flex min-h-[28rem] w-full max-w-sm flex-col items-center justify-between rounded-3xl border p-6 text-center shadow-2xl ${panel}`}
+            className={`nm-raise mobile-safe-top mobile-safe-bottom flex min-h-[28rem] w-full max-w-sm flex-col items-center justify-between rounded-3xl border p-6 text-center shadow-2xl ${panel}`}
             style={menuSurfaceStyle}
             role="dialog"
             aria-modal="true"
@@ -2219,20 +2474,20 @@ export default function Home() {
                   <button
                     type="button"
                     onClick={() => void voiceCall.rejectCall()}
-                    className="flex h-16 w-16 items-center justify-center rounded-full bg-red-500 text-2xl text-white"
+                    className="flex h-16 w-16 items-center justify-center rounded-full bg-red-500 text-white"
                     aria-label="Reject call"
                     title="Reject"
                   >
-                    ×
+                    <PhoneOff size={24} strokeWidth={2} aria-hidden="true" />
                   </button>
                   <button
                     type="button"
                     onClick={() => void voiceCall.acceptCall()}
-                    className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500 text-2xl text-white"
+                    className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500 text-white"
                     aria-label="Answer call"
                     title="Answer"
                   >
-                    ☎
+                    <Phone size={24} strokeWidth={2} aria-hidden="true" />
                   </button>
                 </>
               ) : (
@@ -2251,17 +2506,21 @@ export default function Home() {
                       aria-label={voiceCall.muted ? "Unmute microphone" : "Mute microphone"}
                       title={voiceCall.muted ? "Unmute" : "Mute"}
                     >
-                      {voiceCall.muted ? "M" : "μ"}
+                      {voiceCall.muted ? (
+                        <MicOff size={20} strokeWidth={2} aria-hidden="true" />
+                      ) : (
+                        <Mic size={20} strokeWidth={2} aria-hidden="true" />
+                      )}
                     </button>
                   )}
                   <button
                     type="button"
                     onClick={() => void voiceCall.endCall()}
-                    className="flex h-16 w-16 items-center justify-center rounded-full bg-red-500 text-2xl text-white"
+                    className="flex h-16 w-16 items-center justify-center rounded-full bg-red-500 text-white"
                     aria-label="End call"
                     title="End call"
                   >
-                    ×
+                    <PhoneOff size={24} strokeWidth={2} aria-hidden="true" />
                   </button>
                 </>
               )}
@@ -2282,7 +2541,7 @@ export default function Home() {
       <AnimatePresence>
       {messageActionMenu && (
           <MenuPop
-            className={`glass-menu fixed z-[90] w-[min(18.75rem,calc(100vw-1rem))] rounded-2xl border p-2 shadow-2xl ${panel}`}
+            className={`nm-raise fixed z-[90] w-[min(18.75rem,calc(100vw-1rem))] rounded-2xl border p-2 shadow-2xl ${panel}`}
             style={{
               ...menuSurfaceStyle,
               left: messageActionMenu.x,
@@ -2310,53 +2569,51 @@ export default function Home() {
             <button
               type="button"
               onClick={() => startReply(messageActionMenu.message)}
-              className={`mt-1 w-full rounded-xl px-3 py-2.5 text-left text-sm font-bold ${
+              className={`mt-1 flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-bold ${
                 isDark ? "hover:bg-white/10" : "hover:bg-slate-100"
               }`}
               role="menuitem"
             >
-              ↩ Reply
+              <Reply size={16} strokeWidth={2} aria-hidden="true" /> Reply
             </button>
           </MenuPop>
       )}
       </AnimatePresence>
 
       <div
-        className={`relative z-10 mx-auto grid h-[100dvh] w-full max-w-6xl grid-cols-[minmax(0,1fr)] overflow-hidden border cozy-ring md:h-[calc(100dvh-2rem)] md:grid-cols-[320px_minmax(0,1fr)] md:rounded-3xl ${panel}`}
-        style={{ backgroundColor: "transparent" }}
+        className="relative z-10 mx-auto grid h-[100dvh] w-full max-w-6xl grid-cols-[minmax(0,1fr)] overflow-hidden md:h-[calc(100dvh-2rem)] md:grid-cols-[320px_minmax(0,1fr)]"
       >
         <aside
-          style={panelSurfaceStyle}
-          className={`${panelOpacity <= 25 ? "backdrop-blur-none" : "backdrop-blur-md"} ${mobileChatOpen ? "hidden md:flex" : "flex"} min-h-0 min-w-0 w-full max-w-full flex-col overflow-hidden border-r ${
-            isDark ? "border-white/10" : "border-slate-200"
+          className={`${mobileChatOpen ? "hidden md:flex" : "flex"} min-h-0 min-w-0 w-full max-w-full flex-col overflow-hidden ${
+            isDark ? "md:border-r md:border-white/5" : "md:border-r md:border-black/5"
           }`}
         >
-          <header className={`mobile-safe-top relative z-50 flex items-center justify-between border-b px-3 py-2.5 md:p-4 ${isDark ? "border-white/10" : "border-slate-200"}`}>
+          <header className="mobile-safe-top relative z-50 flex items-center justify-between px-3 py-3 md:px-4 md:py-4">
             <div className="flex min-w-0 flex-1 items-center gap-3 overflow-hidden">
               <Avatar name={profile?.display_name ?? "H"} isDark={isDark} size="lg" />
               <div className="min-w-0 flex-1 overflow-hidden">
-                <h1 className="truncate text-base font-black md:text-lg">{profile?.display_name ?? "Haaahooo"}</h1>
+                <h1 className="font-display truncate text-base font-extrabold md:text-lg">{profile?.display_name ?? "Haaahooo"}</h1>
                 <p className={`truncate text-xs ${muted}`}>@{profile?.username}</p>
               </div>
             </div>
             <button
               onClick={() => setSettingsOpen((current) => !current)}
-              className={`ml-2 flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-xl ${isDark ? "bg-white/10" : "bg-slate-100"}`}
+              className={`ml-2 flex h-10 w-10 shrink-0 items-center justify-center nm-raise-sm nm-press rounded-full`}
               aria-label="Open settings"
             >
-              ⚙
+              <Settings size={20} strokeWidth={2} aria-hidden="true" />
             </button>
 
             <AnimatePresence>
             {settingsOpen && (
               <MenuPop
-                className={`glass-menu absolute right-3 top-[calc(100%+0.5rem)] z-[60] max-h-[calc(100dvh-6.5rem)] w-[calc(100vw-1.5rem)] max-w-72 overflow-y-auto overscroll-contain rounded-2xl border p-3 shadow-2xl ${panel}`}
+                className={`nm-raise absolute right-3 top-[calc(100%+0.5rem)] z-[60] max-h-[calc(100dvh-6.5rem)] w-[calc(100vw-1.5rem)] max-w-72 overflow-y-auto overscroll-contain rounded-2xl border p-3 shadow-2xl ${panel}`}
                 style={menuSurfaceStyle}
               >
                 <p className={`mb-2 text-xs font-bold uppercase ${muted}`}>Profile</p>
-                <input className={`mb-2 w-full rounded-xl border px-3 py-2 outline-none ${inputClass}`} value={profileDisplayName} onChange={(event) => setProfileDisplayName(event.target.value)} placeholder="Display name" />
-                <input className={`mb-3 w-full rounded-xl border px-3 py-2 outline-none ${inputClass}`} value={profileUsername} onChange={(event) => setProfileUsername(event.target.value.toLowerCase())} placeholder="Username" />
-                <button type="button" onClick={() => void saveProfile()} className={`mb-2 w-full rounded-xl py-2 font-bold ${isDark ? "bg-violet-400 text-slate-950" : "bg-slate-950 text-white"}`}>Save profile</button>
+                <input className={`mb-2 w-full nm-field rounded-xl px-3 py-2 outline-none`} value={profileDisplayName} onChange={(event) => setProfileDisplayName(event.target.value)} placeholder="Display name" />
+                <input className={`mb-3 w-full nm-field rounded-xl px-3 py-2 outline-none`} value={profileUsername} onChange={(event) => setProfileUsername(event.target.value.toLowerCase())} placeholder="Username" />
+                <button type="button" onClick={() => void saveProfile()} className="nm-accent nm-press mb-2 w-full rounded-xl py-2 font-bold">Save profile</button>
                 {profileStatus && (
                   <p
                     className={`mb-3 rounded-xl p-2 text-xs ${
@@ -2368,39 +2625,14 @@ export default function Home() {
                     {profileStatus}
                   </p>
                 )}
-                <p className={`mb-2 text-xs font-bold uppercase ${muted}`}>Theme</p>
-                <div className="mb-3 grid grid-cols-3 gap-2">
-                  <ThemeButton label="Auto" value="auto" selected={themeMode} onClick={setThemeMode} isDark={isDark} />
-                  <ThemeButton label="Light" value="light" selected={themeMode} onClick={setThemeMode} isDark={isDark} />
-                  <ThemeButton label="Dark" value="dark" selected={themeMode} onClick={setThemeMode} isDark={isDark} />
+                <p className={`mb-2 text-xs font-bold uppercase ${muted}`}>Sky</p>
+                <div className="mb-3">
+                  <SkyPicker selected={skyMode} onChange={setSkyMode} />
                 </div>
-                <div className={`mb-3 rounded-xl p-3 ${isDark ? "bg-white/10" : "bg-slate-100"}`}>
-                  <div className="mb-2 flex items-center justify-between gap-3">
-                    <p className="text-sm font-bold">Transparency</p>
-                    <p className={`text-xs font-semibold ${muted}`}>{panelOpacity}%</p>
-                  </div>
-                  <input
-                    type="range"
-                    min="10"
-                    max="100"
-                    step="5"
-                    value={panelOpacity}
-                    onChange={(event) =>
-                      setPanelOpacity(
-                        clampPanelOpacity(Number(event.target.value)),
-                      )
-                    }
-                    className="w-full accent-violet-400"
-                    aria-label="Adjust app transparency"
-                  />
-                  <p className={`mt-1 text-[11px] ${muted}`}>
-                    Lower makes the chat shell more transparent.
-                  </p>
-                </div>
-                <button onClick={() => void enableNotifications()} className={`mb-2 w-full rounded-xl px-3 py-3 text-left font-semibold ${isDark ? "bg-white/10" : "bg-slate-100"}`}>
+                <button onClick={() => void enableNotifications()} className="nm-raise-sm nm-press mb-2 w-full rounded-xl px-3 py-3 text-left font-semibold">
                   {notificationsOn ? "Notifications enabled" : "Enable notifications"}
                 </button>
-                <div className={`mb-2 rounded-xl p-3 ${isDark ? "bg-white/10" : "bg-slate-100"}`}>
+                <div className="nm-inset mb-2 rounded-xl p-3">
                   <div className="mb-2 flex items-center justify-between gap-3">
                     <div className="min-w-0">
                       <p className="font-semibold">Spotify</p>
@@ -2414,7 +2646,7 @@ export default function Home() {
                           : "Not connected"}
                       </p>
                     </div>
-                    <span className="text-xl" aria-hidden="true">♫</span>
+                    <Music size={20} strokeWidth={2} aria-hidden="true" className="shrink-0 text-[#1DB954]" />
                   </div>
                   <button
                     type="button"
@@ -2449,8 +2681,8 @@ export default function Home() {
           </header>
 
           <nav className="grid w-full min-w-0 grid-cols-2 gap-2 px-3 py-2 md:p-3" aria-label="Messenger sections">
-            <button onClick={() => setSidebarView("chats")} className={`min-w-0 rounded-xl px-2 py-2.5 text-center text-sm font-bold ${sidebarView === "chats" ? isDark ? "bg-violet-400 text-slate-950" : "bg-slate-950 text-white" : isDark ? "bg-white/10" : "bg-slate-100"}`}>Chats</button>
-            <button onClick={() => setSidebarView("friends")} className={`relative min-w-0 rounded-xl px-2 py-2.5 text-center text-sm font-bold ${sidebarView === "friends" ? isDark ? "bg-violet-400 text-slate-950" : "bg-slate-950 text-white" : isDark ? "bg-white/10" : "bg-slate-100"}`}>
+            <button onClick={() => setSidebarView("chats")} className={`nm-press min-w-0 rounded-xl px-2 py-2.5 text-center text-sm font-bold ${sidebarView === "chats" ? "nm-accent" : "nm-raise-sm"}`}>Chats</button>
+            <button onClick={() => setSidebarView("friends")} className={`nm-press relative min-w-0 rounded-xl px-2 py-2.5 text-center text-sm font-bold ${sidebarView === "friends" ? "nm-accent" : "nm-raise-sm"}`}>
               Friends
               {requests.length > 0 && <span className="ml-2 rounded-full bg-red-500 px-2 py-0.5 text-xs text-white">{requests.length}</span>}
             </button>
@@ -2459,25 +2691,16 @@ export default function Home() {
           <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-3 pb-3">
             {sidebarView === "chats" ? (
               chats.length > 0 ? chats.map((chat) => (
-                <button
+                <ChatListItem
                   key={chat.conversation_id}
-                  onClick={() => openChat(chat)}
-                  className={`mb-2 flex w-full min-w-0 max-w-full items-center gap-3 overflow-hidden rounded-2xl p-3 text-left transition ${
-                    selectedChat?.conversation_id === chat.conversation_id
-                      ? isDark ? "bg-white/15" : "bg-sky-100"
-                      : isDark ? "hover:bg-white/10" : "hover:bg-white"
-                  }`}
-                >
-                  <Avatar name={chat.display_name} isDark={isDark} />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate font-bold">{chat.display_name}</p>
-                    <p className={`truncate text-xs ${muted}`}>{chat.last_message ?? `@${chat.username}`}</p>
-                  </div>
-                  {chat.last_message_at && <span className={`hidden shrink-0 text-[10px] min-[360px]:block ${muted}`}>{new Date(chat.last_message_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>}
-                </button>
+                  chat={chat}
+                  isActive={selectedChat?.conversation_id === chat.conversation_id}
+                  isDark={isDark}
+                  onOpen={openChatRef}
+                />
               )) : (
                 <div className={`mt-12 text-center text-sm ${muted}`}>
-                  <p className="mb-2 text-3xl">💬</p>
+                  <MessageCircle size={30} strokeWidth={1.5} aria-hidden="true" className="mx-auto mb-2 opacity-60" />
                   <p>No chats yet.</p>
                   <button onClick={() => setSidebarView("friends")} className="mt-3 font-bold text-sky-500">Add a friend</button>
                 </div>
@@ -2486,7 +2709,7 @@ export default function Home() {
               <>
                 <div className="mb-4 flex gap-2">
                   <input
-                    className={`min-w-0 flex-1 rounded-xl border px-3 py-2 outline-none ${inputClass}`}
+                    className={`min-w-0 flex-1 nm-field rounded-xl px-3 py-2 outline-none`}
                     placeholder="Search username"
                     value={friendSearch}
                     onChange={(event) => setFriendSearch(event.target.value)}
@@ -2494,14 +2717,14 @@ export default function Home() {
                       if (event.key === "Enter") void searchFriends();
                     }}
                   />
-                  <button onClick={() => void searchFriends()} className={`rounded-xl px-3 font-bold ${isDark ? "bg-violet-400 text-slate-950" : "bg-slate-950 text-white"}`}>Find</button>
+                  <button onClick={() => void searchFriends()} className="nm-accent nm-press rounded-xl px-3 font-bold">Find</button>
                 </div>
 
                 {requests.length > 0 && (
                   <section className="mb-5">
                     <p className={`mb-2 text-xs font-bold uppercase ${muted}`}>Requests</p>
                     {requests.map((request) => (
-                      <div key={request.request_id} className={`mb-2 rounded-2xl p-3 ${isDark ? "bg-white/10" : "bg-white"}`}>
+                      <div key={request.request_id} className="nm-inset mb-2 rounded-2xl p-3">
                         <div className="mb-3 flex items-center gap-3">
                           <Avatar name={request.display_name} isDark={isDark} size="sm" />
                           <div className="min-w-0">
@@ -2511,7 +2734,7 @@ export default function Home() {
                         </div>
                         <div className="grid grid-cols-2 gap-2">
                           <button onClick={() => void respondToRequest(request.request_id, true)} className="rounded-xl bg-emerald-500 py-2 text-sm font-bold text-white">Accept</button>
-                          <button onClick={() => void respondToRequest(request.request_id, false)} className={`rounded-xl py-2 text-sm font-bold ${isDark ? "bg-white/10" : "bg-slate-100"}`}>Reject</button>
+                          <button onClick={() => void respondToRequest(request.request_id, false)} className="nm-raise-sm nm-press rounded-xl py-2 text-sm font-bold">Reject</button>
                         </div>
                       </div>
                     ))}
@@ -2520,7 +2743,7 @@ export default function Home() {
 
                 {searching && <p className={`text-sm ${muted}`}>Searching...</p>}
                 {searchResults.map((result) => (
-                  <div key={result.id} className={`mb-2 flex items-center gap-3 rounded-2xl p-3 ${isDark ? "bg-white/10" : "bg-white"}`}>
+                  <div key={result.id} className="nm-inset mb-2 flex items-center gap-3 rounded-2xl p-3">
                     <Avatar name={result.display_name} isDark={isDark} size="sm" />
                     <div className="min-w-0 flex-1">
                       <p className="truncate font-bold">{result.display_name}</p>
@@ -2529,9 +2752,7 @@ export default function Home() {
                     <button
                       disabled={result.relationship !== "none"}
                       onClick={() => void sendFriendRequest(result.username)}
-                      className={`rounded-xl px-3 py-2 text-xs font-bold disabled:opacity-50 ${
-                        isDark ? "bg-violet-400 text-slate-950" : "bg-slate-950 text-white"
-                      }`}
+                      className="nm-accent nm-press rounded-xl px-3 py-2 text-xs font-bold disabled:opacity-50"
                     >
                       {result.relationship === "friends" ? "Friends" : result.relationship === "sent" ? "Sent" : result.relationship === "received" ? "Pending" : "Add"}
                     </button>
@@ -2543,16 +2764,15 @@ export default function Home() {
         </aside>
 
         <section
-          style={panelSurfaceStyle}
-          className={`${mobileChatOpen ? "flex chat-panel-enter" : "hidden md:flex"} ${panelOpacity <= 25 ? "backdrop-blur-none" : "backdrop-blur-md"} relative min-h-0 min-w-0 w-full max-w-full flex-col overflow-hidden`}
+          className={`${mobileChatOpen ? "flex chat-panel-enter" : "hidden md:flex"} relative min-h-0 min-w-0 w-full max-w-full flex-col overflow-hidden`}
         >
           {selectedChat ? (
             <>
-              <header className={`mobile-safe-top relative z-10 flex min-h-14 items-center gap-2 border-b px-2.5 py-2 md:gap-3 md:p-4 ${isDark ? "border-white/10" : "border-slate-200"}`}>
-                <button onClick={closeMobileChat} className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-2xl md:hidden ${isDark ? "bg-white/10" : "bg-slate-100"}`} aria-label="Back to chats">‹</button>
+              <header className="mobile-safe-top relative z-10 flex min-h-14 items-center gap-2 px-2.5 py-3 md:gap-3 md:p-4">
+                <button onClick={closeMobileChat} className="nm-raise-sm nm-press flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-2xl md:hidden" aria-label="Back to chats">‹</button>
                 <Avatar name={selectedChat.display_name} isDark={isDark} />
                 <div className="min-w-0 flex-1">
-                  <h2 className="truncate font-black">{selectedChat.display_name}</h2>
+                  <h2 className="font-display truncate font-extrabold">{selectedChat.display_name}</h2>
                   <p
                     className={`truncate text-xs ${
                       friendIsOnline ? "font-semibold text-emerald-500" : muted
@@ -2565,13 +2785,11 @@ export default function Home() {
                   type="button"
                   disabled={voiceCall.phase !== "idle"}
                   onClick={() => void voiceCall.startCall(selectedChat)}
-                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-lg disabled:cursor-not-allowed disabled:opacity-40 ${
-                    isDark ? "bg-white/10" : "bg-slate-100"
-                  }`}
+                  className="nm-raise-sm nm-press flex h-10 w-10 shrink-0 items-center justify-center rounded-full disabled:cursor-not-allowed disabled:opacity-40"
                   aria-label={`Call ${selectedChat.display_name}`}
                   title="Voice call"
                 >
-                  ☎
+                  <Phone size={18} strokeWidth={2} aria-hidden="true" />
                 </button>
                 <button
                   type="button"
@@ -2580,11 +2798,11 @@ export default function Home() {
                     setMediaOpen(false);
                     setEmojiOpen(false);
                   }}
-                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-lg ${jukeboxOpen ? "bg-[#1DB954] text-black" : isDark ? "bg-white/10" : "bg-slate-100"}`}
+                  className={`nm-press flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${jukeboxOpen ? "bg-[#1DB954] text-black" : "nm-raise-sm"}`}
                   aria-label="Open shared jukebox"
                   title="Shared jukebox"
                 >
-                  ♫
+                  <Music size={18} strokeWidth={2} aria-hidden="true" />
                 </button>
                 <button
                   type="button"
@@ -2594,11 +2812,11 @@ export default function Home() {
                     setMediaOpen(false);
                     setEmojiOpen(false);
                   }}
-                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-lg ${watchState?.videoId ? "bg-red-600 text-white" : isDark ? "bg-white/10" : "bg-slate-100"}`}
+                  className={`nm-press flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${watchState?.videoId ? "bg-red-600 text-white" : "nm-raise-sm"}`}
                   aria-label="Open watch party"
                   title="Watch YouTube together"
                 >
-                  🎬
+                  <Clapperboard size={18} strokeWidth={2} aria-hidden="true" />
                 </button>
                 <button
                   type="button"
@@ -2607,18 +2825,18 @@ export default function Home() {
                     setMessagesLoading(true);
                     setMessageRefreshKey((current) => current + 1);
                   }}
-                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-lg ${isDark ? "bg-white/10" : "bg-slate-100"}`}
+                  className={`flex h-10 w-10 shrink-0 items-center justify-center nm-raise-sm nm-press rounded-full`}
                   aria-label="Refresh messages"
                   title="Refresh messages"
                 >
-                  ↻
+                  <RotateCw size={18} strokeWidth={2} aria-hidden="true" />
                 </button>
               </header>
 
               <AnimatePresence>
               {jukeboxOpen && (
                 <MenuPop
-                  className={`glass-menu absolute inset-x-2 top-[calc(env(safe-area-inset-top)+4.25rem)] z-50 max-h-[calc(100dvh-8.5rem)] overflow-y-auto overscroll-contain rounded-2xl border p-3 shadow-2xl md:left-auto md:right-4 md:top-20 md:w-96 ${panel}`}
+                  className={`nm-raise absolute inset-x-2 top-[calc(env(safe-area-inset-top)+4.25rem)] z-50 max-h-[calc(100dvh-8.5rem)] overflow-y-auto overscroll-contain rounded-2xl border p-3 shadow-2xl md:left-auto md:right-4 md:top-20 md:w-96 ${panel}`}
                   style={menuSurfaceStyle}
                 >
                   <div className="mb-3 flex items-center justify-between gap-3">
@@ -2629,7 +2847,7 @@ export default function Home() {
                     <button
                       type="button"
                       onClick={() => setJukeboxOpen(false)}
-                      className={`flex h-9 w-9 items-center justify-center rounded-full ${isDark ? "bg-white/10" : "bg-slate-100"}`}
+                      className={`flex h-9 w-9 items-center justify-center nm-raise-sm nm-press rounded-full`}
                       aria-label="Close jukebox"
                     >
                       ×
@@ -2654,7 +2872,7 @@ export default function Home() {
                       onPrevious={() => void controlJukebox("previous")}
                     />
                   ) : (
-                    <p className={`mb-3 rounded-xl p-3 text-sm ${isDark ? "bg-white/10" : "bg-slate-100"} ${muted}`}>
+                    <p className={`nm-inset mb-3 rounded-xl p-3 text-sm ${muted}`}>
                       Search for a song to start the jukebox.
                     </p>
                   )}
@@ -2692,7 +2910,10 @@ export default function Home() {
                           }`}
                           aria-expanded={queueView === "auto"}
                         >
-                          ✨ Recommended · {jukeboxAutoQueue.length}
+                          <span className="inline-flex items-center gap-1.5">
+                            <Sparkles size={14} strokeWidth={2} aria-hidden="true" />
+                            Recommended · {jukeboxAutoQueue.length}
+                          </span>
                         </button>
                       </div>
 
@@ -2711,7 +2932,7 @@ export default function Home() {
                                 {item.imageUrl ? (
                                   <img src={item.imageUrl} alt="" className="h-9 w-9 shrink-0 rounded-md object-cover" />
                                 ) : (
-                                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-[#1DB954] text-sm text-black">♫</div>
+                                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-[#1DB954] text-black"><Music size={16} strokeWidth={2} aria-hidden="true" /></div>
                                 )}
                                 <span className="min-w-0 flex-1">
                                   <span className="block truncate text-xs font-bold">{item.trackName}</span>
@@ -2752,7 +2973,7 @@ export default function Home() {
                                   {item.imageUrl ? (
                                     <img src={item.imageUrl} alt="" className="h-9 w-9 shrink-0 rounded-md object-cover" />
                                   ) : (
-                                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-violet-400 text-sm text-black">♫</div>
+                                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-violet-400 text-black"><Music size={16} strokeWidth={2} aria-hidden="true" /></div>
                                   )}
                                   <span className="min-w-0 flex-1">
                                     <span className="block truncate text-xs font-bold">{item.trackName}</span>
@@ -2785,7 +3006,7 @@ export default function Home() {
                         if (event.key === "Enter") void searchSpotify();
                       }}
                       placeholder="Search Spotify"
-                      className={`min-w-0 flex-1 rounded-xl border px-3 py-2 outline-none ${inputClass}`}
+                      className={`min-w-0 flex-1 nm-field rounded-xl px-3 py-2 outline-none`}
                     />
                     <button
                       type="button"
@@ -2809,7 +3030,7 @@ export default function Home() {
                         {track.imageUrl ? (
                           <img src={track.imageUrl} alt="" className="h-11 w-11 shrink-0 rounded-lg object-cover" />
                         ) : (
-                          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-[#1DB954] text-black">♫</div>
+                          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-[#1DB954] text-black"><Music size={20} strokeWidth={2} aria-hidden="true" /></div>
                         )}
                         <span className="min-w-0 flex-1">
                           <span className="block truncate text-sm font-bold">{track.name}</span>
@@ -2842,7 +3063,7 @@ export default function Home() {
                   )}
 
                   {jukeboxStatus && (
-                    <p className={`mt-2 rounded-xl p-2 text-xs ${isDark ? "bg-white/10" : "bg-slate-100"} ${muted}`}>
+                    <p className={`nm-inset mt-2 rounded-xl p-2 text-xs ${muted}`}>
                       {jukeboxStatus}
                     </p>
                   )}
@@ -2862,133 +3083,37 @@ export default function Home() {
                 )}
                 {!messagesLoading && messages.length === 0 && (
                   <div className={`mx-auto mt-20 max-w-sm text-center ${muted}`}>
-                    <p className="mb-3 text-4xl">👋</p>
+                    <Hand size={36} strokeWidth={1.5} aria-hidden="true" className="mx-auto mb-3 opacity-60" />
                     <p>This chat is empty. Say hello to {selectedChat.display_name}.</p>
                   </div>
                 )}
                 {messages.map((message) => {
-                  const bot = message.is_bot;
                   const mine = message.sender_id === session.user.id;
-                  const repliedMessage = message.reply_to_message_id
-                    ? messageById.get(message.reply_to_message_id)
-                    : null;
-                  const reactions = messageReactions[message.id] ?? [];
                   const seen =
                     mine &&
                     Boolean(friendLastReadAt) &&
                     new Date(friendLastReadAt!).getTime() >=
                       new Date(message.created_at).getTime();
-                  const reactionSummary = reactions.reduce<
-                    Record<string, number>
-                  >((summary, reaction) => {
-                    summary[reaction.emoji] =
-                      (summary[reaction.emoji] ?? 0) + 1;
-                    return summary;
-                  }, {});
                   return (
-                    <MessageIn
+                    <MessageRow
                       key={message.id}
-                      className={`mb-2.5 flex md:mb-3 ${mine && !bot ? "justify-end" : "justify-start"}`}
-                      {...(suppressMsgAnim ? { initial: false as const } : {})}
-                    >
-                      <div className={`flex max-w-[88%] flex-col md:max-w-[72%] ${mine && !bot ? "items-end" : "items-start"}`}>
-                        <div
-                          onContextMenu={(event) =>
-                            handleMessageContextMenu(event, message)
-                          }
-                          onPointerDown={(event) =>
-                            handleMessagePointerDown(event, message)
-                          }
-                          onPointerMove={handleMessagePointerMove}
-                          onPointerUp={handleMessagePointerUp}
-                          onPointerCancel={cancelMessageGesture}
-                          className={`select-none rounded-3xl px-3.5 py-2.5 shadow-sm md:px-4 md:py-3 ${
-                            bot
-                              ? isDark ? "rounded-tl-md border border-amber-300/40 bg-amber-300/20 text-amber-50" : "rounded-tl-md border border-amber-300 bg-amber-100 text-amber-950"
-                              : mine
-                                ? "rounded-br-md bg-gradient-to-br from-violet-500 to-violet-700 text-white shadow-lg shadow-violet-900/30"
-                                : isDark ? "rounded-tl-md border border-white/10 bg-slate-900/70 text-white" : "rounded-tl-md border border-slate-200 bg-white text-slate-950"
-                          }`}
-                          style={{ touchAction: "pan-y" }}
-                        >
-                          {bot && <p className={`mb-1 text-xs font-black uppercase ${isDark ? "text-amber-300" : "text-amber-700"}`}>{message.sender_name ?? "Swiggy"}</p>}
-                          {message.reply_to_message_id && (
-                            <button
-                              type="button"
-                              className="mb-2 block w-full min-w-0 rounded-xl border-l-4 border-current bg-black/10 px-3 py-2 text-left"
-                              onClick={() => {
-                                const target = document.getElementById(
-                                  `message-${message.reply_to_message_id}`,
-                                );
-                                target?.scrollIntoView({
-                                  behavior: "smooth",
-                                  block: "center",
-                                });
-                              }}
-                            >
-                              <span className="block truncate text-xs font-black opacity-75">
-                                {repliedMessage
-                                  ? repliedMessage.is_bot
-                                    ? repliedMessage.sender_name ?? "Swiggy"
-                                    : repliedMessage.sender_id === session.user.id
-                                      ? "You"
-                                      : selectedChat.display_name
-                                  : "Original message"}
-                              </span>
-                              <span className="block max-w-full truncate text-xs opacity-65">
-                                {repliedMessage
-                                  ? getMessagePreview(repliedMessage)
-                                  : "Message unavailable"}
-                              </span>
-                            </button>
-                          )}
-                          <div id={`message-${message.id}`}>
-                            <MessageContent message={message} />
-                          </div>
-                          <div className="mt-2 flex items-center justify-end gap-1.5 text-xs opacity-50">
-                            <span>
-                              {new Date(message.created_at).toLocaleTimeString(
-                                [],
-                                { hour: "2-digit", minute: "2-digit" },
-                              )}
-                            </span>
-                            {mine &&
-                              !bot &&
-                              message.id === latestOwnMessageId && (
-                                <span
-                                  className={
-                                    seen ? "font-bold text-cyan-700" : ""
-                                  }
-                                >
-                                  {seen ? "✓✓ Seen" : "✓ Sent"}
-                                </span>
-                              )}
-                          </div>
-                        </div>
-                        {Object.keys(reactionSummary).length > 0 && (
-                          <div className={`-mt-1 flex flex-wrap gap-1 rounded-full border px-1.5 py-0.5 text-sm shadow-sm ${isDark ? "border-white/10 bg-slate-900" : "border-slate-200 bg-white"}`}>
-                            {Object.entries(reactionSummary).map(
-                              ([emoji, count]) => (
-                                <button
-                                  type="button"
-                                  key={emoji}
-                                  onClick={() => void toggleReaction(message, emoji)}
-                                  className="rounded-full px-1"
-                                  title={`${count} reaction${count === 1 ? "" : "s"}`}
-                                >
-                                  {emoji}
-                                  {count > 1 && (
-                                    <span className="ml-0.5 text-[10px] opacity-60">
-                                      {count}
-                                    </span>
-                                  )}
-                                </button>
-                              ),
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </MessageIn>
+                      message={message}
+                      mine={mine}
+                      bot={message.is_bot}
+                      isDark={isDark}
+                      seen={seen}
+                      isLatestOwn={message.id === latestOwnMessageId}
+                      reactions={messageReactions[message.id] ?? EMPTY_REACTIONS}
+                      repliedMessage={
+                        message.reply_to_message_id
+                          ? messageById.get(message.reply_to_message_id) ?? null
+                          : null
+                      }
+                      friendName={selectedChat.display_name}
+                      myUserId={session.user.id}
+                      suppressAnim={suppressMsgAnim}
+                      handlers={rowHandlers}
+                    />
                   );
                 })}
                 <div ref={bottomRef} />
@@ -3013,7 +3138,7 @@ export default function Home() {
                 )}
               </AnimatePresence>
 
-              <footer className={`mobile-safe-bottom relative z-10 border-t px-2.5 py-2 md:p-4 ${isDark ? "border-white/10" : "border-slate-200"}`}>
+              <footer className="mobile-safe-bottom relative z-10 px-2.5 pb-2.5 pt-2 md:px-4 md:pb-4">
                 {replyingTo && (
                   <div className={`mb-2 flex items-center gap-3 rounded-xl border-l-4 px-3 py-2 ${isDark ? "border-violet-300 bg-white/10" : "border-sky-500 bg-slate-100"}`}>
                     <div className="min-w-0 flex-1">
@@ -3032,10 +3157,10 @@ export default function Home() {
                     <button
                       type="button"
                       onClick={() => setReplyingTo(null)}
-                      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${isDark ? "bg-white/10" : "bg-white"}`}
+                      className="nm-raise-sm nm-press flex h-8 w-8 shrink-0 items-center justify-center rounded-full"
                       aria-label="Cancel reply"
                     >
-                      ×
+                      <X size={16} strokeWidth={2} aria-hidden="true" />
                     </button>
                   </div>
                 )}
@@ -3044,25 +3169,25 @@ export default function Home() {
                     <button
                       disabled={uploading || isRecording}
                       onClick={() => { setMediaOpen((current) => !current); setEmojiOpen(false); }}
-                      className={`flex h-11 w-11 items-center justify-center rounded-full text-2xl disabled:opacity-50 md:h-12 md:w-12 ${isDark ? "bg-white/10" : "bg-white"}`}
+                      className="nm-raise-sm nm-press flex h-11 w-11 items-center justify-center rounded-full disabled:opacity-50 md:h-12 md:w-12"
                       aria-label="Open media menu"
                     >
-                      +
+                      <Plus size={22} strokeWidth={2} aria-hidden="true" />
                     </button>
                     <AnimatePresence>
                     {mediaOpen && (
                       <MenuPop
-                        className={`glass-menu absolute bottom-[calc(100%+0.75rem)] left-0 z-40 w-[min(16rem,calc(100vw-1.25rem))] rounded-2xl border p-2 shadow-2xl ${panel}`}
+                        className={`nm-raise absolute bottom-[calc(100%+0.75rem)] left-0 z-40 w-[min(16rem,calc(100vw-1.25rem))] rounded-2xl border p-2 shadow-2xl ${panel}`}
                         style={menuSurfaceStyle}
                       >
-                        <button onClick={() => { setMediaOpen(false); imageInputRef.current?.click(); }} className={`w-full rounded-xl px-3 py-3 text-left text-sm font-semibold ${isDark ? "hover:bg-white/10" : "hover:bg-slate-100"}`}>📷 Photo</button>
-                        <button onClick={() => { setMediaOpen(false); videoInputRef.current?.click(); }} className={`w-full rounded-xl px-3 py-3 text-left text-sm font-semibold ${isDark ? "hover:bg-white/10" : "hover:bg-slate-100"}`}>🎥 Video</button>
-                        <button onClick={() => void startRecording()} className={`w-full rounded-xl px-3 py-3 text-left text-sm font-semibold ${isDark ? "hover:bg-white/10" : "hover:bg-slate-100"}`}>🎙 Voice note</button>
-                        <button onClick={() => setEmojiOpen((current) => !current)} className={`w-full rounded-xl px-3 py-3 text-left text-sm font-semibold ${isDark ? "hover:bg-white/10" : "hover:bg-slate-100"}`}>😊 Emojis</button>
+                        <button onClick={() => { setMediaOpen(false); imageInputRef.current?.click(); }} className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-3 text-left text-sm font-semibold ${isDark ? "hover:bg-white/10" : "hover:bg-slate-100"}`}><Camera size={18} strokeWidth={2} aria-hidden="true" /> Photo</button>
+                        <button onClick={() => { setMediaOpen(false); videoInputRef.current?.click(); }} className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-3 text-left text-sm font-semibold ${isDark ? "hover:bg-white/10" : "hover:bg-slate-100"}`}><Video size={18} strokeWidth={2} aria-hidden="true" /> Video</button>
+                        <button onClick={() => void startRecording()} className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-3 text-left text-sm font-semibold ${isDark ? "hover:bg-white/10" : "hover:bg-slate-100"}`}><Mic size={18} strokeWidth={2} aria-hidden="true" /> Voice note</button>
+                        <button onClick={() => setEmojiOpen((current) => !current)} className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-3 text-left text-sm font-semibold ${isDark ? "hover:bg-white/10" : "hover:bg-slate-100"}`}><Smile size={18} strokeWidth={2} aria-hidden="true" /> Emojis</button>
                         {emojiOpen && (
                           <div className={`mt-1 grid grid-cols-6 gap-1 border-t pt-2 ${isDark ? "border-white/10" : "border-slate-200"}`}>
                             {CHAT_EMOJIS.map((emoji) => (
-                              <button key={emoji} onClick={() => { setText((current) => `${current}${emoji}`); setMediaOpen(false); setEmojiOpen(false); }} className={`h-9 w-9 rounded-lg text-xl ${isDark ? "hover:bg-white/15" : "hover:bg-slate-100"}`}>{emoji}</button>
+                              <button key={emoji} onClick={() => { composerRef.current?.insertEmoji(emoji); setMediaOpen(false); setEmojiOpen(false); }} className={`h-9 w-9 rounded-lg text-xl ${isDark ? "hover:bg-white/15" : "hover:bg-slate-100"}`}>{emoji}</button>
                             ))}
                           </div>
                         )}
@@ -3071,23 +3196,11 @@ export default function Home() {
                     </AnimatePresence>
                   </div>
                   {isRecording && <button onClick={stopRecording} className="h-12 rounded-full bg-red-500 px-4 text-sm font-bold text-white">Stop</button>}
-                  <input
-                    id="message-composer"
-                    className={`h-11 min-w-0 flex-1 rounded-2xl border px-3 py-2 outline-none md:h-14 md:px-4 md:py-3 ${inputClass}`}
+                  <Composer
+                    ref={composerRef}
                     placeholder={`Message ${selectedChat.display_name}`}
-                    value={text}
-                    onChange={(event) => setText(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") void sendMessage();
-                    }}
+                    onSend={sendMessage}
                   />
-                  <button
-                    onPointerDown={(event) => event.preventDefault()}
-                    onClick={() => void sendMessage()}
-                    className={`h-11 min-w-[4.5rem] shrink-0 rounded-2xl px-3 font-bold md:h-14 md:px-6 ${isDark ? "bg-violet-400 text-slate-950" : "bg-slate-950 text-white"}`}
-                  >
-                    Send
-                  </button>
                 </div>
                 {uploading && <p className={`mt-2 text-xs ${muted}`}>Uploading...</p>}
                 {error && <p className="mt-2 rounded-xl bg-red-500/15 p-2 text-sm text-red-500">{error}</p>}
