@@ -55,8 +55,8 @@ function SkyBackgroundBase() {
       className="pointer-events-none absolute inset-0 overflow-hidden"
       style={{
         background:
-          "radial-gradient(110% 70% at 72% 104%, var(--glow) 0%, transparent 62%)," +
-          "linear-gradient(165deg, var(--sky-a) 0%, var(--nm-ground) 55%, var(--sky-b) 100%)",
+          "radial-gradient(120% 80% at 72% 108%, var(--glow) 0%, transparent 68%)," +
+          "linear-gradient(165deg, var(--sky-a) 0%, var(--nm-ground) 62%, var(--sky-b) 108%)",
         transition: "background .6s ease",
       }}
     >

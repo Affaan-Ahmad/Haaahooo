@@ -2591,7 +2591,7 @@ export default function Home() {
             isDark ? "md:border-r md:border-white/5" : "md:border-r md:border-black/5"
           }`}
         >
-          <header className="nm-raise mobile-safe-top relative z-50 mx-2 mt-2 flex items-center justify-between rounded-2xl px-3 py-2.5 md:mx-3 md:mt-3 md:px-4">
+          <header className="mobile-safe-top relative z-50 flex items-center justify-between px-3 py-3 md:px-4 md:py-4">
             <div className="flex min-w-0 flex-1 items-center gap-3 overflow-hidden">
               <Avatar name={profile?.display_name ?? "H"} isDark={isDark} size="lg" />
               <div className="min-w-0 flex-1 overflow-hidden">
@@ -2773,7 +2773,7 @@ export default function Home() {
         >
           {selectedChat ? (
             <>
-              <header className={`mobile-safe-top relative z-10 flex min-h-14 items-center gap-2 border-b px-2.5 py-2 md:gap-3 md:p-4 ${isDark ? "border-white/10" : "border-slate-200"}`}>
+              <header className="mobile-safe-top relative z-10 flex min-h-14 items-center gap-2 px-2.5 py-3 md:gap-3 md:p-4">
                 <button onClick={closeMobileChat} className="nm-raise-sm nm-press flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-2xl md:hidden" aria-label="Back to chats">‹</button>
                 <Avatar name={selectedChat.display_name} isDark={isDark} />
                 <div className="min-w-0 flex-1">
@@ -3143,7 +3143,7 @@ export default function Home() {
                 )}
               </AnimatePresence>
 
-              <footer className="nm-raise mobile-safe-bottom relative z-10 mx-2 mb-2 rounded-2xl px-2.5 py-2.5 md:mx-3 md:mb-3 md:p-3">
+              <footer className="mobile-safe-bottom relative z-10 px-2.5 pb-2.5 pt-2 md:px-4 md:pb-4">
                 {replyingTo && (
                   <div className={`mb-2 flex items-center gap-3 rounded-xl border-l-4 px-3 py-2 ${isDark ? "border-violet-300 bg-white/10" : "border-sky-500 bg-slate-100"}`}>
                     <div className="min-w-0 flex-1">

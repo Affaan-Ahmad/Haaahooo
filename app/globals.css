@@ -29,12 +29,15 @@
   --cloud: transparent; --glow: transparent;
 }
 :root[data-sky="sundown"] {
-  --background: #38304c; --foreground: #f4ecf3;
-  --nm-ground: #38304c; --nm-sd: #28223a; --nm-sl: #483f60;
+  --background: #45384f; --foreground: #f4ecf3;
+  --nm-ground: #45384f; --nm-sd: #33283b; --nm-sl: #574863;
   --nm-accent: #fb7185; --nm-accent-ink: #2a0f18;
-  --sky-a: #241a3d; --sky-b: #e8a06a;
-  --star: rgba(255,224,194,.5); --star-soft: rgba(255,182,140,.5);
-  --cloud: transparent; --glow: rgba(255,158,84,.55);
+  /* Cohesive warm-dusk: sky stays within a narrow band of the ground, so
+     elements blend everywhere. A faint glow keeps a hint of horizon warmth
+     without a bright "day" zone the dark ground can't match. */
+  --sky-a: #3a2c48; --sky-b: #574152;
+  --star: rgba(255,224,194,.4); --star-soft: rgba(255,182,140,.4);
+  --cloud: transparent; --glow: rgba(255,150,90,.22);
 }
 :root[data-sky="clouds"] {
   --background: #e5e8f1; --foreground: #2a2d40;
@@ -45,19 +48,32 @@
   --cloud: rgba(255,255,255,.92); --glow: transparent;
 }
 
-/* Neumorphic surface primitives — box-shadow only, never backdrop-filter. */
+/* Neumorphic surface primitives — box-shadow only, never backdrop-filter.
+   The trailing ground-coloured halo feathers each element's silhouette into
+   the sky gradient, so edges melt rather than cutting a hard line. Shadows
+   transition so switching sky mode cross-fades smoothly. */
 .nm-raise { background: var(--nm-ground);
-  box-shadow: 6px 6px 14px var(--nm-sd), -6px -6px 14px var(--nm-sl); }
+  box-shadow: 6px 6px 16px var(--nm-sd), -6px -6px 16px var(--nm-sl),
+              0 0 22px 10px var(--nm-ground);
+  transition: box-shadow .5s ease, background .5s ease, color .5s ease; }
 .nm-raise-sm { background: var(--nm-ground);
-  box-shadow: 4px 4px 9px var(--nm-sd), -4px -4px 9px var(--nm-sl); }
+  box-shadow: 4px 4px 10px var(--nm-sd), -4px -4px 10px var(--nm-sl),
+              0 0 14px 6px var(--nm-ground);
+  transition: box-shadow .5s ease, background .5s ease, color .5s ease; }
 .nm-inset { background: var(--nm-ground);
-  box-shadow: inset 5px 5px 10px var(--nm-sd), inset -5px -5px 10px var(--nm-sl); }
-.nm-ground { background: var(--nm-ground); }
+  box-shadow: inset 5px 5px 10px var(--nm-sd), inset -5px -5px 10px var(--nm-sl),
+              0 0 18px 8px var(--nm-ground);
+  transition: box-shadow .5s ease, background .5s ease; }
+.nm-ground { background: var(--nm-ground); transition: background .5s ease; }
 .nm-field { background: var(--nm-ground); color: var(--foreground); border: 0;
-  box-shadow: inset 4px 4px 8px var(--nm-sd), inset -4px -4px 8px var(--nm-sl); }
+  box-shadow: inset 4px 4px 8px var(--nm-sd), inset -4px -4px 8px var(--nm-sl),
+              0 0 16px 7px var(--nm-ground);
+  transition: box-shadow .5s ease, background .5s ease, color .5s ease; }
 .nm-field::placeholder { color: var(--foreground); opacity: .42; }
 .nm-accent { background: var(--nm-accent); color: var(--nm-accent-ink);
-  box-shadow: 5px 5px 12px var(--nm-sd), -4px -4px 10px var(--nm-sl); }
+  box-shadow: 5px 5px 12px var(--nm-sd), -4px -4px 10px var(--nm-sl),
+              0 0 18px 7px var(--nm-ground);
+  transition: box-shadow .5s ease, background .5s ease, color .5s ease; }
 .nm-press { transition: box-shadow .12s ease, transform .12s ease; }
 .nm-press:active { box-shadow: inset 3px 3px 7px var(--nm-sd), inset -3px -3px 7px var(--nm-sl);
   transform: translateY(1px); }
