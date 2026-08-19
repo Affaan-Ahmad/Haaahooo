@@ -129,32 +129,7 @@ button {
   cursor: pointer;
 }
 
-/* Soft-glass surface helpers. These only add border/blur/shadow polish;
-   panel background colour is still driven by the inline panelSurfaceStyle /
-   menuSurfaceStyle in page.tsx, so the transparency slider is unaffected. */
-.glass {
-  backdrop-filter: blur(18px) saturate(140%);
-  -webkit-backdrop-filter: blur(18px) saturate(140%);
-  box-shadow:
-    0 10px 40px -12px rgba(15, 12, 41, 0.35),
-    inset 0 1px 0 rgba(255, 255, 255, 0.18);
-}
-
-.glass-menu {
-  backdrop-filter: blur(22px) saturate(150%);
-  -webkit-backdrop-filter: blur(22px) saturate(150%);
-  box-shadow:
-    0 18px 50px -14px rgba(15, 12, 41, 0.5),
-    inset 0 1px 0 rgba(255, 255, 255, 0.2);
-}
-
-.cozy-ring {
-  box-shadow:
-    0 24px 70px -24px rgba(76, 29, 149, 0.45),
-    inset 0 1px 0 rgba(255, 255, 255, 0.16);
-}
-
-/* Range slider (transparency) themed to the violet identity */
+/* Range slider (jukebox seek bar) themed to the violet identity */
 input[type="range"] {
   -webkit-appearance: none;
   appearance: none;

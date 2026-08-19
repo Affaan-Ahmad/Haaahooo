@@ -718,9 +718,6 @@ export default function Home() {
     backgroundColor: "var(--nm-ground)",
   };
   const muted = isDark ? "text-white/55" : "text-slate-500";
-  const inputClass = isDark
-    ? "border-white/10 bg-white/10 text-white placeholder:text-white/40 focus:border-violet-300"
-    : "border-slate-200 bg-white text-slate-950 placeholder:text-slate-400 focus:border-sky-400";
   const friendPresenceText = formatLastSeen(friendLastSeenAt, presenceClock);
   const friendIsOnline = friendPresenceText === "Online";
   const latestOwnMessageId =
@@ -2432,7 +2429,7 @@ export default function Home() {
           className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/80 p-4 backdrop-blur-md"
         >
           <OverlayPop
-            className={`glass-menu mobile-safe-top mobile-safe-bottom flex min-h-[28rem] w-full max-w-sm flex-col items-center justify-between rounded-3xl border p-6 text-center shadow-2xl ${panel}`}
+            className={`nm-raise mobile-safe-top mobile-safe-bottom flex min-h-[28rem] w-full max-w-sm flex-col items-center justify-between rounded-3xl border p-6 text-center shadow-2xl ${panel}`}
             style={menuSurfaceStyle}
             role="dialog"
             aria-modal="true"
@@ -2544,7 +2541,7 @@ export default function Home() {
       <AnimatePresence>
       {messageActionMenu && (
           <MenuPop
-            className={`glass-menu fixed z-[90] w-[min(18.75rem,calc(100vw-1rem))] rounded-2xl border p-2 shadow-2xl ${panel}`}
+            className={`nm-raise fixed z-[90] w-[min(18.75rem,calc(100vw-1rem))] rounded-2xl border p-2 shadow-2xl ${panel}`}
             style={{
               ...menuSurfaceStyle,
               left: messageActionMenu.x,
@@ -2610,13 +2607,13 @@ export default function Home() {
             <AnimatePresence>
             {settingsOpen && (
               <MenuPop
-                className={`glass-menu absolute right-3 top-[calc(100%+0.5rem)] z-[60] max-h-[calc(100dvh-6.5rem)] w-[calc(100vw-1.5rem)] max-w-72 overflow-y-auto overscroll-contain rounded-2xl border p-3 shadow-2xl ${panel}`}
+                className={`nm-raise absolute right-3 top-[calc(100%+0.5rem)] z-[60] max-h-[calc(100dvh-6.5rem)] w-[calc(100vw-1.5rem)] max-w-72 overflow-y-auto overscroll-contain rounded-2xl border p-3 shadow-2xl ${panel}`}
                 style={menuSurfaceStyle}
               >
                 <p className={`mb-2 text-xs font-bold uppercase ${muted}`}>Profile</p>
-                <input className={`mb-2 w-full rounded-xl border px-3 py-2 outline-none ${inputClass}`} value={profileDisplayName} onChange={(event) => setProfileDisplayName(event.target.value)} placeholder="Display name" />
-                <input className={`mb-3 w-full rounded-xl border px-3 py-2 outline-none ${inputClass}`} value={profileUsername} onChange={(event) => setProfileUsername(event.target.value.toLowerCase())} placeholder="Username" />
-                <button type="button" onClick={() => void saveProfile()} className={`mb-2 w-full rounded-xl py-2 font-bold ${isDark ? "bg-violet-400 text-slate-950" : "bg-slate-950 text-white"}`}>Save profile</button>
+                <input className={`mb-2 w-full nm-field rounded-xl px-3 py-2 outline-none`} value={profileDisplayName} onChange={(event) => setProfileDisplayName(event.target.value)} placeholder="Display name" />
+                <input className={`mb-3 w-full nm-field rounded-xl px-3 py-2 outline-none`} value={profileUsername} onChange={(event) => setProfileUsername(event.target.value.toLowerCase())} placeholder="Username" />
+                <button type="button" onClick={() => void saveProfile()} className="nm-accent nm-press mb-2 w-full rounded-xl py-2 font-bold">Save profile</button>
                 {profileStatus && (
                   <p
                     className={`mb-3 rounded-xl p-2 text-xs ${
@@ -2632,10 +2629,10 @@ export default function Home() {
                 <div className="mb-3">
                   <SkyPicker selected={skyMode} onChange={setSkyMode} />
                 </div>
-                <button onClick={() => void enableNotifications()} className={`mb-2 w-full rounded-xl px-3 py-3 text-left font-semibold ${isDark ? "bg-white/10" : "bg-slate-100"}`}>
+                <button onClick={() => void enableNotifications()} className="nm-raise-sm nm-press mb-2 w-full rounded-xl px-3 py-3 text-left font-semibold">
                   {notificationsOn ? "Notifications enabled" : "Enable notifications"}
                 </button>
-                <div className={`mb-2 rounded-xl p-3 ${isDark ? "bg-white/10" : "bg-slate-100"}`}>
+                <div className="nm-inset mb-2 rounded-xl p-3">
                   <div className="mb-2 flex items-center justify-between gap-3">
                     <div className="min-w-0">
                       <p className="font-semibold">Spotify</p>
@@ -2712,7 +2709,7 @@ export default function Home() {
               <>
                 <div className="mb-4 flex gap-2">
                   <input
-                    className={`min-w-0 flex-1 rounded-xl border px-3 py-2 outline-none ${inputClass}`}
+                    className={`min-w-0 flex-1 nm-field rounded-xl px-3 py-2 outline-none`}
                     placeholder="Search username"
                     value={friendSearch}
                     onChange={(event) => setFriendSearch(event.target.value)}
@@ -2720,14 +2717,14 @@ export default function Home() {
                       if (event.key === "Enter") void searchFriends();
                     }}
                   />
-                  <button onClick={() => void searchFriends()} className={`rounded-xl px-3 font-bold ${isDark ? "bg-violet-400 text-slate-950" : "bg-slate-950 text-white"}`}>Find</button>
+                  <button onClick={() => void searchFriends()} className="nm-accent nm-press rounded-xl px-3 font-bold">Find</button>
                 </div>
 
                 {requests.length > 0 && (
                   <section className="mb-5">
                     <p className={`mb-2 text-xs font-bold uppercase ${muted}`}>Requests</p>
                     {requests.map((request) => (
-                      <div key={request.request_id} className={`mb-2 rounded-2xl p-3 ${isDark ? "bg-white/10" : "bg-white"}`}>
+                      <div key={request.request_id} className="nm-inset mb-2 rounded-2xl p-3">
                         <div className="mb-3 flex items-center gap-3">
                           <Avatar name={request.display_name} isDark={isDark} size="sm" />
                           <div className="min-w-0">
@@ -2737,7 +2734,7 @@ export default function Home() {
                         </div>
                         <div className="grid grid-cols-2 gap-2">
                           <button onClick={() => void respondToRequest(request.request_id, true)} className="rounded-xl bg-emerald-500 py-2 text-sm font-bold text-white">Accept</button>
-                          <button onClick={() => void respondToRequest(request.request_id, false)} className={`rounded-xl py-2 text-sm font-bold ${isDark ? "bg-white/10" : "bg-slate-100"}`}>Reject</button>
+                          <button onClick={() => void respondToRequest(request.request_id, false)} className="nm-raise-sm nm-press rounded-xl py-2 text-sm font-bold">Reject</button>
                         </div>
                       </div>
                     ))}
@@ -2746,7 +2743,7 @@ export default function Home() {
 
                 {searching && <p className={`text-sm ${muted}`}>Searching...</p>}
                 {searchResults.map((result) => (
-                  <div key={result.id} className={`mb-2 flex items-center gap-3 rounded-2xl p-3 ${isDark ? "bg-white/10" : "bg-white"}`}>
+                  <div key={result.id} className="nm-inset mb-2 flex items-center gap-3 rounded-2xl p-3">
                     <Avatar name={result.display_name} isDark={isDark} size="sm" />
                     <div className="min-w-0 flex-1">
                       <p className="truncate font-bold">{result.display_name}</p>
@@ -2755,9 +2752,7 @@ export default function Home() {
                     <button
                       disabled={result.relationship !== "none"}
                       onClick={() => void sendFriendRequest(result.username)}
-                      className={`rounded-xl px-3 py-2 text-xs font-bold disabled:opacity-50 ${
-                        isDark ? "bg-violet-400 text-slate-950" : "bg-slate-950 text-white"
-                      }`}
+                      className="nm-accent nm-press rounded-xl px-3 py-2 text-xs font-bold disabled:opacity-50"
                     >
                       {result.relationship === "friends" ? "Friends" : result.relationship === "sent" ? "Sent" : result.relationship === "received" ? "Pending" : "Add"}
                     </button>
@@ -2841,7 +2836,7 @@ export default function Home() {
               <AnimatePresence>
               {jukeboxOpen && (
                 <MenuPop
-                  className={`glass-menu absolute inset-x-2 top-[calc(env(safe-area-inset-top)+4.25rem)] z-50 max-h-[calc(100dvh-8.5rem)] overflow-y-auto overscroll-contain rounded-2xl border p-3 shadow-2xl md:left-auto md:right-4 md:top-20 md:w-96 ${panel}`}
+                  className={`nm-raise absolute inset-x-2 top-[calc(env(safe-area-inset-top)+4.25rem)] z-50 max-h-[calc(100dvh-8.5rem)] overflow-y-auto overscroll-contain rounded-2xl border p-3 shadow-2xl md:left-auto md:right-4 md:top-20 md:w-96 ${panel}`}
                   style={menuSurfaceStyle}
                 >
                   <div className="mb-3 flex items-center justify-between gap-3">
@@ -2877,7 +2872,7 @@ export default function Home() {
                       onPrevious={() => void controlJukebox("previous")}
                     />
                   ) : (
-                    <p className={`mb-3 rounded-xl p-3 text-sm ${isDark ? "bg-white/10" : "bg-slate-100"} ${muted}`}>
+                    <p className={`nm-inset mb-3 rounded-xl p-3 text-sm ${muted}`}>
                       Search for a song to start the jukebox.
                     </p>
                   )}
@@ -3011,7 +3006,7 @@ export default function Home() {
                         if (event.key === "Enter") void searchSpotify();
                       }}
                       placeholder="Search Spotify"
-                      className={`min-w-0 flex-1 rounded-xl border px-3 py-2 outline-none ${inputClass}`}
+                      className={`min-w-0 flex-1 nm-field rounded-xl px-3 py-2 outline-none`}
                     />
                     <button
                       type="button"
@@ -3068,7 +3063,7 @@ export default function Home() {
                   )}
 
                   {jukeboxStatus && (
-                    <p className={`mt-2 rounded-xl p-2 text-xs ${isDark ? "bg-white/10" : "bg-slate-100"} ${muted}`}>
+                    <p className={`nm-inset mt-2 rounded-xl p-2 text-xs ${muted}`}>
                       {jukeboxStatus}
                     </p>
                   )}
@@ -3182,7 +3177,7 @@ export default function Home() {
                     <AnimatePresence>
                     {mediaOpen && (
                       <MenuPop
-                        className={`glass-menu absolute bottom-[calc(100%+0.75rem)] left-0 z-40 w-[min(16rem,calc(100vw-1.25rem))] rounded-2xl border p-2 shadow-2xl ${panel}`}
+                        className={`nm-raise absolute bottom-[calc(100%+0.75rem)] left-0 z-40 w-[min(16rem,calc(100vw-1.25rem))] rounded-2xl border p-2 shadow-2xl ${panel}`}
                         style={menuSurfaceStyle}
                       >
                         <button onClick={() => { setMediaOpen(false); imageInputRef.current?.click(); }} className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-3 text-left text-sm font-semibold ${isDark ? "hover:bg-white/10" : "hover:bg-slate-100"}`}><Camera size={18} strokeWidth={2} aria-hidden="true" /> Photo</button>
