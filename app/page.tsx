@@ -1,7 +1,10 @@
 "use client";
 
 import {
+  forwardRef,
+  memo,
   useEffect,
+  useImperativeHandle,
   useMemo,
   useRef,
   useState,
@@ -18,6 +21,27 @@ import {
 } from "@/lib/clientNotifications";
 import { useVoiceCall } from "@/lib/useVoiceCall";
 import { AnimatePresence, motion } from "motion/react";
+import {
+  Camera,
+  Check,
+  CheckCheck,
+  Clapperboard,
+  Hand,
+  MessageCircle,
+  Mic,
+  MicOff,
+  Music,
+  Phone,
+  PhoneOff,
+  Plus,
+  Reply,
+  RotateCw,
+  Settings,
+  Smile,
+  Sparkles,
+  Video,
+  X,
+} from "lucide-react";
 import { SkyBackground } from "@/components/sky/SkyBackground";
 import {
   MenuPop,
@@ -331,6 +355,224 @@ function MessageContent({ message }: { message: Message }) {
   return <audio src={message.file_url} controls className="max-w-full" />;
 }
 
+/**
+ * Composer — the message input + Send button.
+ *
+ * Owns `text` LOCALLY so a keystroke re-renders only this small component,
+ * not the whole Home page (chat list, message thread, sky…). Before this
+ * split every character typed reconciled the entire 3k-line tree.
+ *
+ * `onSend` returns whether the send succeeded: the field clears optimistically
+ * and restores the text if the send fails. Emoji insertion (the picker lives
+ * in the parent) reaches in through the imperative `insertEmoji` handle.
+ */
+export type ComposerHandle = { insertEmoji: (emoji: string) => void };
+
+const Composer = memo(
+  forwardRef<
+    ComposerHandle,
+    {
+      placeholder: string;
+      inputClass: string;
+      isDark: boolean;
+      onSend: (body: string) => Promise<boolean>;
+    }
+  >(function Composer({ placeholder, inputClass, isDark, onSend }, ref) {
+    const [text, setText] = useState("");
+
+    useImperativeHandle(
+      ref,
+      () => ({ insertEmoji: (emoji) => setText((current) => `${current}${emoji}`) }),
+      [],
+    );
+
+    async function submit() {
+      const body = text.trim();
+      if (!body) return;
+      setText(""); // optimistic clear
+      const ok = await onSend(body);
+      if (!ok) setText(body); // restore on failure
+    }
+
+    return (
+      <>
+        <input
+          id="message-composer"
+          className={`h-11 min-w-0 flex-1 rounded-2xl border px-3 py-2 outline-none md:h-14 md:px-4 md:py-3 ${inputClass}`}
+          placeholder={placeholder}
+          value={text}
+          onChange={(event) => setText(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") void submit();
+          }}
+        />
+        <button
+          onPointerDown={(event) => event.preventDefault()}
+          onClick={() => void submit()}
+          className={`h-11 min-w-[4.5rem] shrink-0 rounded-2xl px-3 font-bold md:h-14 md:px-6 ${isDark ? "bg-violet-400 text-slate-950" : "bg-slate-950 text-white"}`}
+        >
+          Send
+        </button>
+      </>
+    );
+  }),
+);
+
+/** Stable empty array so no-reaction rows keep a constant `reactions` prop. */
+const EMPTY_REACTIONS: MessageReaction[] = [];
+
+type RowHandlers = {
+  onContextMenu: (event: ReactMouseEvent<HTMLDivElement>, message: Message) => void;
+  onPointerDown: (event: ReactPointerEvent<HTMLDivElement>, message: Message) => void;
+  onPointerMove: (event: ReactPointerEvent<HTMLDivElement>) => void;
+  onPointerUp: (event: ReactPointerEvent<HTMLDivElement>) => void;
+  onPointerCancel: () => void;
+  onToggleReaction: (message: Message, emoji: string) => void;
+};
+
+/**
+ * MessageRow — one chat bubble, memoized.
+ *
+ * The thread can hold hundreds of these. Before this split, anything that
+ * re-rendered Home (a new message, the 15s presence tick, a realtime event)
+ * reconciled every bubble. Now each row's props are stable while its message
+ * is unchanged, so `memo` skips the untouched ones and only new/changed
+ * bubbles render. Gesture + reaction callbacks arrive through a stable ref
+ * (`handlers`) so they never break memoization.
+ */
+const MessageRow = memo(function MessageRow({
+  message,
+  mine,
+  bot,
+  isDark,
+  seen,
+  isLatestOwn,
+  reactions,
+  repliedMessage,
+  friendName,
+  myUserId,
+  suppressAnim,
+  handlers,
+}: {
+  message: Message;
+  mine: boolean;
+  bot: boolean;
+  isDark: boolean;
+  seen: boolean;
+  isLatestOwn: boolean;
+  reactions: MessageReaction[];
+  repliedMessage: Message | null;
+  friendName: string;
+  myUserId: string;
+  suppressAnim: boolean;
+  handlers: { current: RowHandlers | null };
+}) {
+  const reactionSummary = reactions.reduce<Record<string, number>>(
+    (summary, reaction) => {
+      summary[reaction.emoji] = (summary[reaction.emoji] ?? 0) + 1;
+      return summary;
+    },
+    {},
+  );
+
+  return (
+    <MessageIn
+      className={`mb-2.5 flex md:mb-3 ${mine && !bot ? "justify-end" : "justify-start"}`}
+      {...(suppressAnim ? { initial: false as const } : {})}
+    >
+      <div className={`flex max-w-[88%] flex-col md:max-w-[72%] ${mine && !bot ? "items-end" : "items-start"}`}>
+        <div
+          onContextMenu={(event) => handlers.current?.onContextMenu(event, message)}
+          onPointerDown={(event) => handlers.current?.onPointerDown(event, message)}
+          onPointerMove={(event) => handlers.current?.onPointerMove(event)}
+          onPointerUp={(event) => handlers.current?.onPointerUp(event)}
+          onPointerCancel={() => handlers.current?.onPointerCancel()}
+          className={`select-none rounded-3xl px-3.5 py-2.5 shadow-sm md:px-4 md:py-3 ${
+            bot
+              ? isDark ? "rounded-tl-md border border-amber-300/40 bg-amber-300/20 text-amber-50" : "rounded-tl-md border border-amber-300 bg-amber-100 text-amber-950"
+              : mine
+                ? "rounded-br-md bg-violet-600 text-white shadow-lg shadow-violet-900/30"
+                : isDark ? "rounded-tl-md border border-white/10 bg-slate-900/70 text-white" : "rounded-tl-md border border-slate-200 bg-white text-slate-950"
+          }`}
+          style={{ touchAction: "pan-y" }}
+        >
+          {bot && <p className={`mb-1 text-xs font-black uppercase ${isDark ? "text-amber-300" : "text-amber-700"}`}>{message.sender_name ?? "Swiggy"}</p>}
+          {message.reply_to_message_id && (
+            <button
+              type="button"
+              className="mb-2 block w-full min-w-0 rounded-xl border-l-4 border-current bg-black/10 px-3 py-2 text-left"
+              onClick={() => {
+                const target = document.getElementById(
+                  `message-${message.reply_to_message_id}`,
+                );
+                target?.scrollIntoView({ behavior: "smooth", block: "center" });
+              }}
+            >
+              <span className="block truncate text-xs font-black opacity-75">
+                {repliedMessage
+                  ? repliedMessage.is_bot
+                    ? repliedMessage.sender_name ?? "Swiggy"
+                    : repliedMessage.sender_id === myUserId
+                      ? "You"
+                      : friendName
+                  : "Original message"}
+              </span>
+              <span className="block max-w-full truncate text-xs opacity-65">
+                {repliedMessage
+                  ? getMessagePreview(repliedMessage)
+                  : "Message unavailable"}
+              </span>
+            </button>
+          )}
+          <div id={`message-${message.id}`}>
+            <MessageContent message={message} />
+          </div>
+          <div className="mt-2 flex items-center justify-end gap-1.5 text-xs opacity-50">
+            <span>
+              {new Date(message.created_at).toLocaleTimeString([], {
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
+            </span>
+            {mine && !bot && isLatestOwn && (
+              <span
+                className={`inline-flex items-center gap-0.5 ${
+                  seen ? "font-bold text-cyan-700" : ""
+                }`}
+              >
+                {seen ? (
+                  <CheckCheck size={13} strokeWidth={2.5} aria-hidden="true" />
+                ) : (
+                  <Check size={13} strokeWidth={2.5} aria-hidden="true" />
+                )}
+                {seen ? "Seen" : "Sent"}
+              </span>
+            )}
+          </div>
+        </div>
+        {Object.keys(reactionSummary).length > 0 && (
+          <div className={`-mt-1 flex flex-wrap gap-1 rounded-full border px-1.5 py-0.5 text-sm shadow-sm ${isDark ? "border-white/10 bg-slate-900" : "border-slate-200 bg-white"}`}>
+            {Object.entries(reactionSummary).map(([emoji, count]) => (
+              <button
+                type="button"
+                key={emoji}
+                onClick={() => handlers.current?.onToggleReaction(message, emoji)}
+                className="rounded-full px-1"
+                title={`${count} reaction${count === 1 ? "" : "s"}`}
+              >
+                {emoji}
+                {count > 1 && (
+                  <span className="ml-0.5 text-[10px] opacity-60">{count}</span>
+                )}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </MessageIn>
+  );
+});
+
 export default function Home() {
   const [session, setSession] = useState<Session | null>(null);
   const [sessionReady, setSessionReady] = useState(false);
@@ -383,7 +625,11 @@ export default function Home() {
   const [friendLastReadAt, setFriendLastReadAt] = useState<string | null>(null);
   const [friendLastSeenAt, setFriendLastSeenAt] = useState<string | null>(null);
   const [presenceClock, setPresenceClock] = useState(Date.now());
-  const [text, setText] = useState("");
+  const composerRef = useRef<ComposerHandle>(null);
+  // Latest gesture/reaction callbacks in a stable ref, so memoized MessageRows
+  // never re-render just because these closures were recreated. Synced in an
+  // effect below (the handlers are declared later in this component).
+  const rowHandlers = useRef<RowHandlers | null>(null);
   const [error, setError] = useState("");
   const [uploading, setUploading] = useState(false);
   const [notificationsOn, setNotificationsOn] = useState(false);
@@ -1783,6 +2029,19 @@ export default function Home() {
     gestureRef.current = null;
   }
 
+  // Keep the stable handlers ref pointing at the latest closures. No dep array:
+  // runs after every render so MessageRow always calls current logic.
+  useEffect(() => {
+    rowHandlers.current = {
+      onContextMenu: handleMessageContextMenu,
+      onPointerDown: handleMessagePointerDown,
+      onPointerMove: handleMessagePointerMove,
+      onPointerUp: handleMessagePointerUp,
+      onPointerCancel: cancelMessageGesture,
+      onToggleReaction: toggleReaction,
+    };
+  });
+
   async function toggleReaction(message: Message, emoji: string) {
     if (!session) return;
     setMessageActionMenu(null);
@@ -1868,18 +2127,19 @@ export default function Home() {
     }
   }
 
-  async function sendMessage() {
-    const body = text.trim();
-    if (!body || !session || !selectedChat) return;
+  // Returns true on success. The Composer owns the input text now, so it
+  // clears optimistically and restores from this return value on failure.
+  async function sendMessage(body: string): Promise<boolean> {
+    const trimmed = body.trim();
+    if (!trimmed || !session || !selectedChat) return false;
     const replyToMessageId = replyingTo?.id ?? null;
-    setText("");
     setError("");
     shouldAutoScrollRef.current = true;
     setShowScrollButton(false);
 
     const { error: messageError } = await supabase.from("messages").insert({
       conversation_id: selectedChat.conversation_id,
-      body,
+      body: trimmed,
       sender_id: session.user.id,
       message_type: "text",
       is_bot: false,
@@ -1888,14 +2148,13 @@ export default function Home() {
 
     if (messageError) {
       setError(messageError.message);
-      setText(body);
-      return;
+      return false;
     }
 
     setReplyingTo(null);
     await sendPushNotification("text", selectedChat.conversation_id);
 
-    if (/(^|\s)@swiggy\b/i.test(body)) {
+    if (/(^|\s)@swiggy\b/i.test(trimmed)) {
       const {
         data: { session: currentSession },
       } = await supabase.auth.getSession();
@@ -1906,7 +2165,7 @@ export default function Home() {
           Authorization: `Bearer ${currentSession?.access_token ?? ""}`,
         },
         body: JSON.stringify({
-          message: body,
+          message: trimmed,
           conversationId: selectedChat.conversation_id,
         }),
       });
@@ -1918,6 +2177,8 @@ export default function Home() {
         setError(result?.message ?? "Swiggy could not reply right now.");
       }
     }
+
+    return true;
   }
 
   async function uploadFile(file: File, forcedType?: MessageType) {
@@ -2083,7 +2344,7 @@ export default function Home() {
               alt="Haaahooo"
               className="mx-auto mb-3 h-20 w-20 rounded-3xl shadow-lg"
             />
-            <h1 className="text-3xl font-black">Haaahooo</h1>
+            <h1 className="font-display text-4xl font-extrabold">Haaahooo</h1>
             <p className={`mt-2 ${muted}`}>Private chats with the people you choose.</p>
           </div>
 
@@ -2219,20 +2480,20 @@ export default function Home() {
                   <button
                     type="button"
                     onClick={() => void voiceCall.rejectCall()}
-                    className="flex h-16 w-16 items-center justify-center rounded-full bg-red-500 text-2xl text-white"
+                    className="flex h-16 w-16 items-center justify-center rounded-full bg-red-500 text-white"
                     aria-label="Reject call"
                     title="Reject"
                   >
-                    ×
+                    <PhoneOff size={24} strokeWidth={2} aria-hidden="true" />
                   </button>
                   <button
                     type="button"
                     onClick={() => void voiceCall.acceptCall()}
-                    className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500 text-2xl text-white"
+                    className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500 text-white"
                     aria-label="Answer call"
                     title="Answer"
                   >
-                    ☎
+                    <Phone size={24} strokeWidth={2} aria-hidden="true" />
                   </button>
                 </>
               ) : (
@@ -2251,17 +2512,21 @@ export default function Home() {
                       aria-label={voiceCall.muted ? "Unmute microphone" : "Mute microphone"}
                       title={voiceCall.muted ? "Unmute" : "Mute"}
                     >
-                      {voiceCall.muted ? "M" : "μ"}
+                      {voiceCall.muted ? (
+                        <MicOff size={20} strokeWidth={2} aria-hidden="true" />
+                      ) : (
+                        <Mic size={20} strokeWidth={2} aria-hidden="true" />
+                      )}
                     </button>
                   )}
                   <button
                     type="button"
                     onClick={() => void voiceCall.endCall()}
-                    className="flex h-16 w-16 items-center justify-center rounded-full bg-red-500 text-2xl text-white"
+                    className="flex h-16 w-16 items-center justify-center rounded-full bg-red-500 text-white"
                     aria-label="End call"
                     title="End call"
                   >
-                    ×
+                    <PhoneOff size={24} strokeWidth={2} aria-hidden="true" />
                   </button>
                 </>
               )}
@@ -2310,12 +2575,12 @@ export default function Home() {
             <button
               type="button"
               onClick={() => startReply(messageActionMenu.message)}
-              className={`mt-1 w-full rounded-xl px-3 py-2.5 text-left text-sm font-bold ${
+              className={`mt-1 flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-bold ${
                 isDark ? "hover:bg-white/10" : "hover:bg-slate-100"
               }`}
               role="menuitem"
             >
-              ↩ Reply
+              <Reply size={16} strokeWidth={2} aria-hidden="true" /> Reply
             </button>
           </MenuPop>
       )}
@@ -2335,16 +2600,16 @@ export default function Home() {
             <div className="flex min-w-0 flex-1 items-center gap-3 overflow-hidden">
               <Avatar name={profile?.display_name ?? "H"} isDark={isDark} size="lg" />
               <div className="min-w-0 flex-1 overflow-hidden">
-                <h1 className="truncate text-base font-black md:text-lg">{profile?.display_name ?? "Haaahooo"}</h1>
+                <h1 className="font-display truncate text-base font-extrabold md:text-lg">{profile?.display_name ?? "Haaahooo"}</h1>
                 <p className={`truncate text-xs ${muted}`}>@{profile?.username}</p>
               </div>
             </div>
             <button
               onClick={() => setSettingsOpen((current) => !current)}
-              className={`ml-2 flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-xl ${isDark ? "bg-white/10" : "bg-slate-100"}`}
+              className={`ml-2 flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${isDark ? "bg-white/10" : "bg-slate-100"}`}
               aria-label="Open settings"
             >
-              ⚙
+              <Settings size={20} strokeWidth={2} aria-hidden="true" />
             </button>
 
             <AnimatePresence>
@@ -2414,7 +2679,7 @@ export default function Home() {
                           : "Not connected"}
                       </p>
                     </div>
-                    <span className="text-xl" aria-hidden="true">♫</span>
+                    <Music size={20} strokeWidth={2} aria-hidden="true" className="shrink-0 text-[#1DB954]" />
                   </div>
                   <button
                     type="button"
@@ -2477,7 +2742,7 @@ export default function Home() {
                 </button>
               )) : (
                 <div className={`mt-12 text-center text-sm ${muted}`}>
-                  <p className="mb-2 text-3xl">💬</p>
+                  <MessageCircle size={30} strokeWidth={1.5} aria-hidden="true" className="mx-auto mb-2 opacity-60" />
                   <p>No chats yet.</p>
                   <button onClick={() => setSidebarView("friends")} className="mt-3 font-bold text-sky-500">Add a friend</button>
                 </div>
@@ -2552,7 +2817,7 @@ export default function Home() {
                 <button onClick={closeMobileChat} className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-2xl md:hidden ${isDark ? "bg-white/10" : "bg-slate-100"}`} aria-label="Back to chats">‹</button>
                 <Avatar name={selectedChat.display_name} isDark={isDark} />
                 <div className="min-w-0 flex-1">
-                  <h2 className="truncate font-black">{selectedChat.display_name}</h2>
+                  <h2 className="font-display truncate font-extrabold">{selectedChat.display_name}</h2>
                   <p
                     className={`truncate text-xs ${
                       friendIsOnline ? "font-semibold text-emerald-500" : muted
@@ -2565,13 +2830,13 @@ export default function Home() {
                   type="button"
                   disabled={voiceCall.phase !== "idle"}
                   onClick={() => void voiceCall.startCall(selectedChat)}
-                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-lg disabled:cursor-not-allowed disabled:opacity-40 ${
+                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full disabled:cursor-not-allowed disabled:opacity-40 ${
                     isDark ? "bg-white/10" : "bg-slate-100"
                   }`}
                   aria-label={`Call ${selectedChat.display_name}`}
                   title="Voice call"
                 >
-                  ☎
+                  <Phone size={18} strokeWidth={2} aria-hidden="true" />
                 </button>
                 <button
                   type="button"
@@ -2580,11 +2845,11 @@ export default function Home() {
                     setMediaOpen(false);
                     setEmojiOpen(false);
                   }}
-                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-lg ${jukeboxOpen ? "bg-[#1DB954] text-black" : isDark ? "bg-white/10" : "bg-slate-100"}`}
+                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${jukeboxOpen ? "bg-[#1DB954] text-black" : isDark ? "bg-white/10" : "bg-slate-100"}`}
                   aria-label="Open shared jukebox"
                   title="Shared jukebox"
                 >
-                  ♫
+                  <Music size={18} strokeWidth={2} aria-hidden="true" />
                 </button>
                 <button
                   type="button"
@@ -2594,11 +2859,11 @@ export default function Home() {
                     setMediaOpen(false);
                     setEmojiOpen(false);
                   }}
-                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-lg ${watchState?.videoId ? "bg-red-600 text-white" : isDark ? "bg-white/10" : "bg-slate-100"}`}
+                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${watchState?.videoId ? "bg-red-600 text-white" : isDark ? "bg-white/10" : "bg-slate-100"}`}
                   aria-label="Open watch party"
                   title="Watch YouTube together"
                 >
-                  🎬
+                  <Clapperboard size={18} strokeWidth={2} aria-hidden="true" />
                 </button>
                 <button
                   type="button"
@@ -2607,11 +2872,11 @@ export default function Home() {
                     setMessagesLoading(true);
                     setMessageRefreshKey((current) => current + 1);
                   }}
-                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-lg ${isDark ? "bg-white/10" : "bg-slate-100"}`}
+                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${isDark ? "bg-white/10" : "bg-slate-100"}`}
                   aria-label="Refresh messages"
                   title="Refresh messages"
                 >
-                  ↻
+                  <RotateCw size={18} strokeWidth={2} aria-hidden="true" />
                 </button>
               </header>
 
@@ -2692,7 +2957,10 @@ export default function Home() {
                           }`}
                           aria-expanded={queueView === "auto"}
                         >
-                          ✨ Recommended · {jukeboxAutoQueue.length}
+                          <span className="inline-flex items-center gap-1.5">
+                            <Sparkles size={14} strokeWidth={2} aria-hidden="true" />
+                            Recommended · {jukeboxAutoQueue.length}
+                          </span>
                         </button>
                       </div>
 
@@ -2711,7 +2979,7 @@ export default function Home() {
                                 {item.imageUrl ? (
                                   <img src={item.imageUrl} alt="" className="h-9 w-9 shrink-0 rounded-md object-cover" />
                                 ) : (
-                                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-[#1DB954] text-sm text-black">♫</div>
+                                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-[#1DB954] text-black"><Music size={16} strokeWidth={2} aria-hidden="true" /></div>
                                 )}
                                 <span className="min-w-0 flex-1">
                                   <span className="block truncate text-xs font-bold">{item.trackName}</span>
@@ -2752,7 +3020,7 @@ export default function Home() {
                                   {item.imageUrl ? (
                                     <img src={item.imageUrl} alt="" className="h-9 w-9 shrink-0 rounded-md object-cover" />
                                   ) : (
-                                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-violet-400 text-sm text-black">♫</div>
+                                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-violet-400 text-black"><Music size={16} strokeWidth={2} aria-hidden="true" /></div>
                                   )}
                                   <span className="min-w-0 flex-1">
                                     <span className="block truncate text-xs font-bold">{item.trackName}</span>
@@ -2809,7 +3077,7 @@ export default function Home() {
                         {track.imageUrl ? (
                           <img src={track.imageUrl} alt="" className="h-11 w-11 shrink-0 rounded-lg object-cover" />
                         ) : (
-                          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-[#1DB954] text-black">♫</div>
+                          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-[#1DB954] text-black"><Music size={20} strokeWidth={2} aria-hidden="true" /></div>
                         )}
                         <span className="min-w-0 flex-1">
                           <span className="block truncate text-sm font-bold">{track.name}</span>
@@ -2862,133 +3130,37 @@ export default function Home() {
                 )}
                 {!messagesLoading && messages.length === 0 && (
                   <div className={`mx-auto mt-20 max-w-sm text-center ${muted}`}>
-                    <p className="mb-3 text-4xl">👋</p>
+                    <Hand size={36} strokeWidth={1.5} aria-hidden="true" className="mx-auto mb-3 opacity-60" />
                     <p>This chat is empty. Say hello to {selectedChat.display_name}.</p>
                   </div>
                 )}
                 {messages.map((message) => {
-                  const bot = message.is_bot;
                   const mine = message.sender_id === session.user.id;
-                  const repliedMessage = message.reply_to_message_id
-                    ? messageById.get(message.reply_to_message_id)
-                    : null;
-                  const reactions = messageReactions[message.id] ?? [];
                   const seen =
                     mine &&
                     Boolean(friendLastReadAt) &&
                     new Date(friendLastReadAt!).getTime() >=
                       new Date(message.created_at).getTime();
-                  const reactionSummary = reactions.reduce<
-                    Record<string, number>
-                  >((summary, reaction) => {
-                    summary[reaction.emoji] =
-                      (summary[reaction.emoji] ?? 0) + 1;
-                    return summary;
-                  }, {});
                   return (
-                    <MessageIn
+                    <MessageRow
                       key={message.id}
-                      className={`mb-2.5 flex md:mb-3 ${mine && !bot ? "justify-end" : "justify-start"}`}
-                      {...(suppressMsgAnim ? { initial: false as const } : {})}
-                    >
-                      <div className={`flex max-w-[88%] flex-col md:max-w-[72%] ${mine && !bot ? "items-end" : "items-start"}`}>
-                        <div
-                          onContextMenu={(event) =>
-                            handleMessageContextMenu(event, message)
-                          }
-                          onPointerDown={(event) =>
-                            handleMessagePointerDown(event, message)
-                          }
-                          onPointerMove={handleMessagePointerMove}
-                          onPointerUp={handleMessagePointerUp}
-                          onPointerCancel={cancelMessageGesture}
-                          className={`select-none rounded-3xl px-3.5 py-2.5 shadow-sm md:px-4 md:py-3 ${
-                            bot
-                              ? isDark ? "rounded-tl-md border border-amber-300/40 bg-amber-300/20 text-amber-50" : "rounded-tl-md border border-amber-300 bg-amber-100 text-amber-950"
-                              : mine
-                                ? "rounded-br-md bg-gradient-to-br from-violet-500 to-violet-700 text-white shadow-lg shadow-violet-900/30"
-                                : isDark ? "rounded-tl-md border border-white/10 bg-slate-900/70 text-white" : "rounded-tl-md border border-slate-200 bg-white text-slate-950"
-                          }`}
-                          style={{ touchAction: "pan-y" }}
-                        >
-                          {bot && <p className={`mb-1 text-xs font-black uppercase ${isDark ? "text-amber-300" : "text-amber-700"}`}>{message.sender_name ?? "Swiggy"}</p>}
-                          {message.reply_to_message_id && (
-                            <button
-                              type="button"
-                              className="mb-2 block w-full min-w-0 rounded-xl border-l-4 border-current bg-black/10 px-3 py-2 text-left"
-                              onClick={() => {
-                                const target = document.getElementById(
-                                  `message-${message.reply_to_message_id}`,
-                                );
-                                target?.scrollIntoView({
-                                  behavior: "smooth",
-                                  block: "center",
-                                });
-                              }}
-                            >
-                              <span className="block truncate text-xs font-black opacity-75">
-                                {repliedMessage
-                                  ? repliedMessage.is_bot
-                                    ? repliedMessage.sender_name ?? "Swiggy"
-                                    : repliedMessage.sender_id === session.user.id
-                                      ? "You"
-                                      : selectedChat.display_name
-                                  : "Original message"}
-                              </span>
-                              <span className="block max-w-full truncate text-xs opacity-65">
-                                {repliedMessage
-                                  ? getMessagePreview(repliedMessage)
-                                  : "Message unavailable"}
-                              </span>
-                            </button>
-                          )}
-                          <div id={`message-${message.id}`}>
-                            <MessageContent message={message} />
-                          </div>
-                          <div className="mt-2 flex items-center justify-end gap-1.5 text-xs opacity-50">
-                            <span>
-                              {new Date(message.created_at).toLocaleTimeString(
-                                [],
-                                { hour: "2-digit", minute: "2-digit" },
-                              )}
-                            </span>
-                            {mine &&
-                              !bot &&
-                              message.id === latestOwnMessageId && (
-                                <span
-                                  className={
-                                    seen ? "font-bold text-cyan-700" : ""
-                                  }
-                                >
-                                  {seen ? "✓✓ Seen" : "✓ Sent"}
-                                </span>
-                              )}
-                          </div>
-                        </div>
-                        {Object.keys(reactionSummary).length > 0 && (
-                          <div className={`-mt-1 flex flex-wrap gap-1 rounded-full border px-1.5 py-0.5 text-sm shadow-sm ${isDark ? "border-white/10 bg-slate-900" : "border-slate-200 bg-white"}`}>
-                            {Object.entries(reactionSummary).map(
-                              ([emoji, count]) => (
-                                <button
-                                  type="button"
-                                  key={emoji}
-                                  onClick={() => void toggleReaction(message, emoji)}
-                                  className="rounded-full px-1"
-                                  title={`${count} reaction${count === 1 ? "" : "s"}`}
-                                >
-                                  {emoji}
-                                  {count > 1 && (
-                                    <span className="ml-0.5 text-[10px] opacity-60">
-                                      {count}
-                                    </span>
-                                  )}
-                                </button>
-                              ),
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </MessageIn>
+                      message={message}
+                      mine={mine}
+                      bot={message.is_bot}
+                      isDark={isDark}
+                      seen={seen}
+                      isLatestOwn={message.id === latestOwnMessageId}
+                      reactions={messageReactions[message.id] ?? EMPTY_REACTIONS}
+                      repliedMessage={
+                        message.reply_to_message_id
+                          ? messageById.get(message.reply_to_message_id) ?? null
+                          : null
+                      }
+                      friendName={selectedChat.display_name}
+                      myUserId={session.user.id}
+                      suppressAnim={suppressMsgAnim}
+                      handlers={rowHandlers}
+                    />
                   );
                 })}
                 <div ref={bottomRef} />
@@ -3035,7 +3207,7 @@ export default function Home() {
                       className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${isDark ? "bg-white/10" : "bg-white"}`}
                       aria-label="Cancel reply"
                     >
-                      ×
+                      <X size={16} strokeWidth={2} aria-hidden="true" />
                     </button>
                   </div>
                 )}
@@ -3044,10 +3216,10 @@ export default function Home() {
                     <button
                       disabled={uploading || isRecording}
                       onClick={() => { setMediaOpen((current) => !current); setEmojiOpen(false); }}
-                      className={`flex h-11 w-11 items-center justify-center rounded-full text-2xl disabled:opacity-50 md:h-12 md:w-12 ${isDark ? "bg-white/10" : "bg-white"}`}
+                      className={`flex h-11 w-11 items-center justify-center rounded-full disabled:opacity-50 md:h-12 md:w-12 ${isDark ? "bg-white/10" : "bg-white"}`}
                       aria-label="Open media menu"
                     >
-                      +
+                      <Plus size={22} strokeWidth={2} aria-hidden="true" />
                     </button>
                     <AnimatePresence>
                     {mediaOpen && (
@@ -3055,14 +3227,14 @@ export default function Home() {
                         className={`glass-menu absolute bottom-[calc(100%+0.75rem)] left-0 z-40 w-[min(16rem,calc(100vw-1.25rem))] rounded-2xl border p-2 shadow-2xl ${panel}`}
                         style={menuSurfaceStyle}
                       >
-                        <button onClick={() => { setMediaOpen(false); imageInputRef.current?.click(); }} className={`w-full rounded-xl px-3 py-3 text-left text-sm font-semibold ${isDark ? "hover:bg-white/10" : "hover:bg-slate-100"}`}>📷 Photo</button>
-                        <button onClick={() => { setMediaOpen(false); videoInputRef.current?.click(); }} className={`w-full rounded-xl px-3 py-3 text-left text-sm font-semibold ${isDark ? "hover:bg-white/10" : "hover:bg-slate-100"}`}>🎥 Video</button>
-                        <button onClick={() => void startRecording()} className={`w-full rounded-xl px-3 py-3 text-left text-sm font-semibold ${isDark ? "hover:bg-white/10" : "hover:bg-slate-100"}`}>🎙 Voice note</button>
-                        <button onClick={() => setEmojiOpen((current) => !current)} className={`w-full rounded-xl px-3 py-3 text-left text-sm font-semibold ${isDark ? "hover:bg-white/10" : "hover:bg-slate-100"}`}>😊 Emojis</button>
+                        <button onClick={() => { setMediaOpen(false); imageInputRef.current?.click(); }} className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-3 text-left text-sm font-semibold ${isDark ? "hover:bg-white/10" : "hover:bg-slate-100"}`}><Camera size={18} strokeWidth={2} aria-hidden="true" /> Photo</button>
+                        <button onClick={() => { setMediaOpen(false); videoInputRef.current?.click(); }} className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-3 text-left text-sm font-semibold ${isDark ? "hover:bg-white/10" : "hover:bg-slate-100"}`}><Video size={18} strokeWidth={2} aria-hidden="true" /> Video</button>
+                        <button onClick={() => void startRecording()} className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-3 text-left text-sm font-semibold ${isDark ? "hover:bg-white/10" : "hover:bg-slate-100"}`}><Mic size={18} strokeWidth={2} aria-hidden="true" /> Voice note</button>
+                        <button onClick={() => setEmojiOpen((current) => !current)} className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-3 text-left text-sm font-semibold ${isDark ? "hover:bg-white/10" : "hover:bg-slate-100"}`}><Smile size={18} strokeWidth={2} aria-hidden="true" /> Emojis</button>
                         {emojiOpen && (
                           <div className={`mt-1 grid grid-cols-6 gap-1 border-t pt-2 ${isDark ? "border-white/10" : "border-slate-200"}`}>
                             {CHAT_EMOJIS.map((emoji) => (
-                              <button key={emoji} onClick={() => { setText((current) => `${current}${emoji}`); setMediaOpen(false); setEmojiOpen(false); }} className={`h-9 w-9 rounded-lg text-xl ${isDark ? "hover:bg-white/15" : "hover:bg-slate-100"}`}>{emoji}</button>
+                              <button key={emoji} onClick={() => { composerRef.current?.insertEmoji(emoji); setMediaOpen(false); setEmojiOpen(false); }} className={`h-9 w-9 rounded-lg text-xl ${isDark ? "hover:bg-white/15" : "hover:bg-slate-100"}`}>{emoji}</button>
                             ))}
                           </div>
                         )}
@@ -3071,23 +3243,13 @@ export default function Home() {
                     </AnimatePresence>
                   </div>
                   {isRecording && <button onClick={stopRecording} className="h-12 rounded-full bg-red-500 px-4 text-sm font-bold text-white">Stop</button>}
-                  <input
-                    id="message-composer"
-                    className={`h-11 min-w-0 flex-1 rounded-2xl border px-3 py-2 outline-none md:h-14 md:px-4 md:py-3 ${inputClass}`}
+                  <Composer
+                    ref={composerRef}
                     placeholder={`Message ${selectedChat.display_name}`}
-                    value={text}
-                    onChange={(event) => setText(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") void sendMessage();
-                    }}
+                    inputClass={inputClass}
+                    isDark={isDark}
+                    onSend={sendMessage}
                   />
-                  <button
-                    onPointerDown={(event) => event.preventDefault()}
-                    onClick={() => void sendMessage()}
-                    className={`h-11 min-w-[4.5rem] shrink-0 rounded-2xl px-3 font-bold md:h-14 md:px-6 ${isDark ? "bg-violet-400 text-slate-950" : "bg-slate-950 text-white"}`}
-                  >
-                    Send
-                  </button>
                 </div>
                 {uploading && <p className={`mt-2 text-xs ${muted}`}>Uploading...</p>}
                 {error && <p className="mt-2 rounded-xl bg-red-500/15 p-2 text-sm text-red-500">{error}</p>}

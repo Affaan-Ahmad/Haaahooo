@@ -1,8 +1,9 @@
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&family=Inter:wght@400;500;600;700;800;900&display=swap");
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
+  /* Faint violet-white paper — pure #fff reads flat/synthetic. */
+  --background: #fbfaff;
   --foreground: #171717;
 
   /* Haaahooo identity */
@@ -15,6 +16,15 @@
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: "Inter", "Segoe UI", system-ui, -apple-system, Arial, sans-serif;
+  /* Display face — the wordmark + headings. Body stays Inter. */
+  --font-display: "Bricolage Grotesque", "Inter", system-ui, sans-serif;
+}
+
+/* Wordmark + headline voice. Tailwind's font-black maps weight; this sets
+   the family so headings stop sharing the body font (one-font = template). */
+.font-display {
+  font-family: var(--font-display);
+  letter-spacing: -0.01em;
 }
 
 * {
