@@ -573,6 +573,44 @@ const MessageRow = memo(function MessageRow({
   );
 });
 
+/**
+ * ChatListItem — one row in the sidebar chat list, memoized.
+ *
+ * Few rows, so the win is small — but it means a realtime `last_message`
+ * update on one chat, or the presence tick, no longer re-renders every row.
+ * `onOpen` arrives via a stable ref so memoization holds.
+ */
+const ChatListItem = memo(function ChatListItem({
+  chat,
+  isActive,
+  isDark,
+  onOpen,
+}: {
+  chat: Chat;
+  isActive: boolean;
+  isDark: boolean;
+  onOpen: { current: ((chat: Chat) => void) | null };
+}) {
+  const muted = isDark ? "text-white/55" : "text-slate-500";
+  return (
+    <button
+      onClick={() => onOpen.current?.(chat)}
+      className={`mb-2 flex w-full min-w-0 max-w-full items-center gap-3 overflow-hidden rounded-2xl p-3 text-left transition ${
+        isActive
+          ? isDark ? "bg-white/15" : "bg-sky-100"
+          : isDark ? "hover:bg-white/10" : "hover:bg-white"
+      }`}
+    >
+      <Avatar name={chat.display_name} isDark={isDark} />
+      <div className="min-w-0 flex-1">
+        <p className="truncate font-bold">{chat.display_name}</p>
+        <p className={`truncate text-xs ${muted}`}>{chat.last_message ?? `@${chat.username}`}</p>
+      </div>
+      {chat.last_message_at && <span className={`hidden shrink-0 text-[10px] min-[360px]:block ${muted}`}>{new Date(chat.last_message_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>}
+    </button>
+  );
+});
+
 export default function Home() {
   const [session, setSession] = useState<Session | null>(null);
   const [sessionReady, setSessionReady] = useState(false);
@@ -630,6 +668,7 @@ export default function Home() {
   // never re-render just because these closures were recreated. Synced in an
   // effect below (the handlers are declared later in this component).
   const rowHandlers = useRef<RowHandlers | null>(null);
+  const openChatRef = useRef<((chat: Chat) => void) | null>(null);
   const [error, setError] = useState("");
   const [uploading, setUploading] = useState(false);
   const [notificationsOn, setNotificationsOn] = useState(false);
@@ -2040,6 +2079,7 @@ export default function Home() {
       onPointerCancel: cancelMessageGesture,
       onToggleReaction: toggleReaction,
     };
+    openChatRef.current = openChat;
   });
 
   async function toggleReaction(message: Message, emoji: string) {
@@ -2724,22 +2764,13 @@ export default function Home() {
           <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-3 pb-3">
             {sidebarView === "chats" ? (
               chats.length > 0 ? chats.map((chat) => (
-                <button
+                <ChatListItem
                   key={chat.conversation_id}
-                  onClick={() => openChat(chat)}
-                  className={`mb-2 flex w-full min-w-0 max-w-full items-center gap-3 overflow-hidden rounded-2xl p-3 text-left transition ${
-                    selectedChat?.conversation_id === chat.conversation_id
-                      ? isDark ? "bg-white/15" : "bg-sky-100"
-                      : isDark ? "hover:bg-white/10" : "hover:bg-white"
-                  }`}
-                >
-                  <Avatar name={chat.display_name} isDark={isDark} />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate font-bold">{chat.display_name}</p>
-                    <p className={`truncate text-xs ${muted}`}>{chat.last_message ?? `@${chat.username}`}</p>
-                  </div>
-                  {chat.last_message_at && <span className={`hidden shrink-0 text-[10px] min-[360px]:block ${muted}`}>{new Date(chat.last_message_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>}
-                </button>
+                  chat={chat}
+                  isActive={selectedChat?.conversation_id === chat.conversation_id}
+                  isDark={isDark}
+                  onOpen={openChatRef}
+                />
               )) : (
                 <div className={`mt-12 text-center text-sm ${muted}`}>
                   <MessageCircle size={30} strokeWidth={1.5} aria-hidden="true" className="mx-auto mb-2 opacity-60" />
