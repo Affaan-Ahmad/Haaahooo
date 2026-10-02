@@ -1,0 +1,25 @@
+name: supabase-keepalive
+
+# Keep the free-tier project active with a lightweight API request.
+on:
+  schedule:
+    - cron: "0 6 */3 * *"
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Supabase REST endpoint
+        env:
+          SUPABASE_ANON_KEY: sb_publishable_9_PfTW9maQ4pmI5W9vPweQ_GoodBz8G
+        run: |
+          code=$(curl -sS -o /dev/null -w "%{http_code}" \
+            "https://qjsrbnffypproiuflgld.supabase.co/rest/v1/keepalive?select=id&limit=1" \
+            -H "apikey: $SUPABASE_ANON_KEY" \
+            -H "Authorization: Bearer $SUPABASE_ANON_KEY")
+          echo "HTTP $code"
+          case "$code" in
+            2*) echo "keep-alive ok" ;;
+            *)  echo "keep-alive failed"; exit 1 ;;
+          esac
